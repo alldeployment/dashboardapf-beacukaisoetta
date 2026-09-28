@@ -9,6 +9,14 @@ const WEIGHTS = {
 
 export async function GET() {
   try {
+    // =========================
+    // TEST KONEKSI DATABASE
+    // =========================
+    await pool.query("SELECT 1");
+
+    // =========================
+    // SUMMARY SEMUA DATA
+    // =========================
     const result = await pool.query(`
       SELECT
         COALESCE(SUM(recommendation_count), 0)::int AS total,
@@ -46,6 +54,9 @@ export async function GET() {
       FROM recommendations
     `);
 
+    // =========================
+    // SUMMARY BPK
+    // =========================
     const bpkResult = await pool.query(`
       SELECT
         COALESCE(SUM(recommendation_count), 0)::int AS total,
@@ -64,17 +75,13 @@ export async function GET() {
 
         COALESCE(
           SUM(recommendation_count)
-          FILTER (
-            WHERE category = 'Laporan Keuangan'
-          ),
+          FILTER (WHERE category = 'Laporan Keuangan'),
           0
         )::int AS keuangan,
 
         COALESCE(
           SUM(recommendation_count)
-          FILTER (
-            WHERE category = 'Bukan Keuangan'
-          ),
+          FILTER (WHERE category = 'Bukan Keuangan'),
           0
         )::int AS bukan_keuangan,
 
@@ -100,6 +107,9 @@ export async function GET() {
       WHERE source = 'BPK'
     `);
 
+    // =========================
+    // SUMMARY ITJEN
+    // =========================
     const itjenResult = await pool.query(`
       SELECT
         COALESCE(SUM(recommendation_count), 0)::int AS total,
@@ -130,18 +140,27 @@ export async function GET() {
     const bpk = bpkResult.rows[0];
     const itjen = itjenResult.rows[0];
 
-    const total = Number(row.total);
-    const belumTl = Number(row.belum_tl);
-    const sudahTl = Number(row.sudah_tl);
-    const sudahTuntas = Number(row.sudah_tuntas);
+    // =========================
+    // KONVERSI ANGKA
+    // =========================
+    const total = Number(row.total) || 0;
+    const belumTl = Number(row.belum_tl) || 0;
+    const sudahTl = Number(row.sudah_tl) || 0;
+    const sudahTuntas = Number(row.sudah_tuntas) || 0;
 
-    const masukSaldo = Number(row.masuk_saldo);
-    const belumSaldo = Number(row.belum_saldo);
+    const masukSaldo = Number(row.masuk_saldo) || 0;
+    const belumSaldo = Number(row.belum_saldo) || 0;
 
+    // =========================
+    // PERSENTASE SALDO
+    // =========================
     const persentaseSaldo = total > 0 ? (masukSaldo / total) * 100 : 0;
 
     const persentaseBelumSaldo = total > 0 ? (belumSaldo / total) * 100 : 0;
 
+    // =========================
+    // CAPAIAN
+    // =========================
     const capaian =
       total > 0
         ? (belumTl * WEIGHTS.BELUM_TL +
@@ -150,12 +169,18 @@ export async function GET() {
           total
         : 0;
 
-    const bpkTotal = Number(bpk.total);
-    const bpkMasukSaldo = Number(bpk.masuk_saldo);
+    // =========================
+    // BPK
+    // =========================
+    const bpkTotal = Number(bpk.total) || 0;
+    const bpkMasukSaldo = Number(bpk.masuk_saldo) || 0;
 
     const bpkPersentaseSaldo =
       bpkTotal > 0 ? (bpkMasukSaldo / bpkTotal) * 100 : 0;
 
+    // =========================
+    // RESPONSE
+    // =========================
     return NextResponse.json({
       ok: true,
 
@@ -178,34 +203,40 @@ export async function GET() {
 
         bpk: {
           total: bpkTotal,
-          belumTl: Number(bpk.belum_tl),
-          sudahTl: Number(bpk.sudah_tl),
-          sudahTuntas: Number(bpk.sudah_tuntas),
+
+          belumTl: Number(bpk.belum_tl) || 0,
+          sudahTl: Number(bpk.sudah_tl) || 0,
+          sudahTuntas: Number(bpk.sudah_tuntas) || 0,
 
           masukSaldo: bpkMasukSaldo,
-          belumSaldo: Number(bpk.belum_saldo),
+          belumSaldo: Number(bpk.belum_saldo) || 0,
 
-          keuangan: Number(bpk.keuangan),
-          bukanKeuangan: Number(bpk.bukan_keuangan),
+          keuangan: Number(bpk.keuangan) || 0,
+          bukanKeuangan: Number(bpk.bukan_keuangan) || 0,
 
           persentaseSaldo: Number(bpkPersentaseSaldo.toFixed(2)),
         },
 
         itjen: {
-          total: Number(itjen.total),
-          belumTl: Number(itjen.belum_tl),
-          sudahTl: Number(itjen.sudah_tl),
-          sudahTuntas: Number(itjen.sudah_tuntas),
+          total: Number(itjen.total) || 0,
+          belumTl: Number(itjen.belum_tl) || 0,
+          sudahTl: Number(itjen.sudah_tl) || 0,
+          sudahTuntas: Number(itjen.sudah_tuntas) || 0,
         },
       },
     });
   } catch (error) {
-    console.error("Dashboard summary error:", error);
+    console.error("========== DASHBOARD SUMMARY ERROR ==========");
+    console.error(error);
+    console.error("=============================================");
 
     return NextResponse.json(
       {
         ok: false,
-        message: "Gagal mengambil summary dashboard",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Gagal mengambil summary dashboard",
       },
       { status: 500 }
     );
