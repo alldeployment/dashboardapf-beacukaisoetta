@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, ReactNode } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 type Props = {
   children: ReactNode;
@@ -9,7 +9,6 @@ type Props = {
 
 export default function AuthGuard({ children }: Props) {
   const router = useRouter();
-  const pathname = usePathname();
 
   const [checking, setChecking] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
@@ -24,7 +23,7 @@ export default function AuthGuard({ children }: Props) {
 
     setAuthenticated(true);
     setChecking(false);
-  }, [router, pathname]);
+  }, [router]);
 
   if (checking) {
     return (

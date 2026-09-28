@@ -6,7 +6,7 @@ import DashboardShell from "@/components/DashboardShell";
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
-  if (pathname === "/login") {
+  if (pathname === "/" || pathname === "/login") {
     return <>{children}</>;
   }
 
