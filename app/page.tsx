@@ -1,8 +1,5 @@
-export default function DashboardPage() {
-  return (
-    <div>
-      <h1>Dashboard APF</h1>
-      <p>Bea Cukai Soekarno-Hatta</p>
-    </div>
-  );
+import { redirect } from "next/navigation";
+
+export default function HomePage() {
+  redirect("/login");
 }
