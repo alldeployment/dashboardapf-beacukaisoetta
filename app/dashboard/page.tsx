@@ -6,7 +6,7 @@ import Link from "next/link";
 type Summary = {
   total: number;
   belumTl: number;
-  belumTuntas: number;
+  sudahTl: number;
   sudahTuntas: number;
   masukSaldo: number;
   belumSaldo: number;
@@ -25,9 +25,9 @@ type Summary = {
 
   itjen: {
     total: number;
-    selesai: number;
-    proses: number;
-    belum: number;
+    belumTl: number;
+    sudahTl: number;
+    sudahTuntas: number;
   };
 };
 
@@ -65,18 +65,29 @@ export default function DashboardPage() {
         }),
       ]);
 
-      if (!summaryRes.ok || !recommendationRes.ok) {
-        throw new Error("Gagal mengambil data dashboard");
-      }
-
       const summaryJson = await summaryRes.json();
       const recommendationJson = await recommendationRes.json();
 
-      setSummary(summaryJson?.data ?? null);
-      setRecommendations(recommendationJson?.data ?? []);
+      if (!summaryRes.ok || !summaryJson?.ok) {
+        throw new Error(
+          summaryJson?.message || "Gagal mengambil summary dashboard"
+        );
+      }
+
+      if (!recommendationRes.ok || !recommendationJson?.ok) {
+        throw new Error(
+          recommendationJson?.message || "Gagal mengambil data rekomendasi"
+        );
+      }
+
+      setSummary(summaryJson.data ?? null);
+      setRecommendations(recommendationJson.data ?? []);
     } catch (err) {
       console.error("DASHBOARD ERROR:", err);
-      setError("Data dashboard gagal dimuat.");
+
+      setError(
+        err instanceof Error ? err.message : "Data dashboard gagal dimuat."
+      );
     } finally {
       setLoading(false);
     }
@@ -92,35 +103,21 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, []);
 
-  /*
-  ============================================================
-  HELPER ANGKA
-  ============================================================
-  */
-
   const safeNumber = (value: unknown): number => {
     const number = Number(value);
 
-    if (!Number.isFinite(number)) {
-      return 0;
-    }
-
-    return number;
+    return Number.isFinite(number) ? number : 0;
   };
 
   const safePercentage = (value: unknown, total: unknown): number => {
     const numerator = safeNumber(value);
     const denominator = safeNumber(total);
 
-    if (denominator <= 0) {
-      return 0;
-    }
+    if (denominator <= 0) return 0;
 
     const result = (numerator / denominator) * 100;
 
-    if (!Number.isFinite(result)) {
-      return 0;
-    }
+    if (!Number.isFinite(result)) return 0;
 
     return Math.min(100, Math.max(0, Math.round(result)));
   };
@@ -141,12 +138,6 @@ export default function DashboardPage() {
     });
   };
 
-  /*
-  ============================================================
-  STATUS
-  ============================================================
-  */
-
   const getStatusLabel = (status: string) => {
     switch (status) {
       case "SUDAH_TUNTAS":
@@ -155,7 +146,6 @@ export default function DashboardPage() {
       case "SUDAH_TL":
         return "Sudah TL";
 
-      // Kompatibilitas data lama
       case "BELUM_TUNTAS":
         return "Sudah TL";
 
@@ -173,9 +163,6 @@ export default function DashboardPage() {
         return "bg-green-50 text-green-700 border-green-200";
 
       case "SUDAH_TL":
-        return "bg-amber-50 text-amber-700 border-amber-200";
-
-      // Kompatibilitas data lama
       case "BELUM_TUNTAS":
         return "bg-amber-50 text-amber-700 border-amber-200";
 
@@ -189,74 +176,66 @@ export default function DashboardPage() {
 
   /*
   ============================================================
-  BPK DATA
+  DATA SUMMARY
   ============================================================
   */
 
-  const bpkRaw = summary?.bpk;
+  const total = safeNumber(summary?.total);
+  const belumTl = safeNumber(summary?.belumTl);
+  const sudahTl = safeNumber(summary?.sudahTl);
+  const sudahTuntas = safeNumber(summary?.sudahTuntas);
+
+  /*
+  ============================================================
+  BPK
+  ============================================================
+  */
 
   const bpkData = {
-    total: safeNumber(bpkRaw?.total),
-
-    masukSaldo: safeNumber(bpkRaw?.masukSaldo),
-
-    belumSaldo: safeNumber(bpkRaw?.belumSaldo),
-
-    keuangan: safeNumber(bpkRaw?.keuangan),
-
-    bukanKeuangan: safeNumber(bpkRaw?.bukanKeuangan),
-
-    persentaseSaldo: safeNumber(bpkRaw?.persentaseSaldo),
+    total: safeNumber(summary?.bpk?.total),
+    masukSaldo: safeNumber(summary?.bpk?.masukSaldo),
+    belumSaldo: safeNumber(summary?.bpk?.belumSaldo),
+    keuangan: safeNumber(summary?.bpk?.keuangan),
+    bukanKeuangan: safeNumber(summary?.bpk?.bukanKeuangan),
+    persentaseSaldo: safeNumber(summary?.bpk?.persentaseSaldo),
   };
+
+  const persentaseSaldo = safePercentage(bpkData.masukSaldo, bpkData.total);
+
+  const persentaseBelumSaldo = safePercentage(
+    bpkData.belumSaldo,
+    bpkData.total
+  );
 
   /*
   ============================================================
-  ITJEN DATA
+  ITJEN
   ============================================================
   */
-
-  const itjenRaw = summary?.itjen;
 
   const itjenData = {
-    total: safeNumber(itjenRaw?.total),
-
-    selesai: safeNumber(itjenRaw?.selesai),
-
-    proses: safeNumber(itjenRaw?.proses),
-
-    belum: safeNumber(itjenRaw?.belum),
+    total: safeNumber(summary?.itjen?.total),
+    belumTl: safeNumber(summary?.itjen?.belumTl),
+    sudahTl: safeNumber(summary?.itjen?.sudahTl),
+    sudahTuntas: safeNumber(summary?.itjen?.sudahTuntas),
   };
 
-  /*
-  ============================================================
-  PERSENTASE
-  ============================================================
-  */
+  const persentaseTuntas = safePercentage(
+    itjenData.sudahTuntas,
+    itjenData.total
+  );
 
-  const persentaseSaldo =
-    bpkData.total > 0 ? safePercentage(bpkData.masukSaldo, bpkData.total) : 0;
+  const persentaseSudahTl = safePercentage(itjenData.sudahTl, itjenData.total);
 
-  const persentaseBelumSaldo =
-    bpkData.total > 0 ? safePercentage(bpkData.belumSaldo, bpkData.total) : 0;
-
-  const persentaseSelesai =
-    itjenData.total > 0
-      ? safePercentage(itjenData.selesai, itjenData.total)
-      : 0;
-
-  const persentaseProses =
-    itjenData.total > 0 ? safePercentage(itjenData.proses, itjenData.total) : 0;
-
-  const persentaseBelum =
-    itjenData.total > 0 ? safePercentage(itjenData.belum, itjenData.total) : 0;
-
-  /*
-  ============================================================
-  RECENT DATA
-  ============================================================
-  */
+  const persentaseBelumTl = safePercentage(itjenData.belumTl, itjenData.total);
 
   const recentData = recommendations.slice(0, 5);
+
+  /*
+  ============================================================
+  RENDER
+  ============================================================
+  */
 
   return (
     <main
@@ -265,14 +244,10 @@ export default function DashboardPage() {
         backgroundImage: "url('/bcsoetta.jpg')",
       }}
     >
-      {/* BACKGROUND OVERLAY */}
       <div className="fixed inset-0 -z-0 bg-[#071426]/80" />
 
-      {/* CONTENT */}
       <div className="relative z-10 min-h-screen bg-white/5 px-6 py-8 lg:px-8">
-        {/* =====================================================
-            HEADER
-        ====================================================== */}
+        {/* HEADER */}
 
         <section className="mb-8">
           <div className="flex flex-col justify-between gap-5 xl:flex-row xl:items-end">
@@ -321,9 +296,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* =====================================================
-            EXECUTIVE SUMMARY
-        ====================================================== */}
+        {/* EXECUTIVE SUMMARY */}
 
         <section className="mb-6">
           <div className="mb-4">
@@ -339,7 +312,7 @@ export default function DashboardPage() {
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {/* TOTAL */}
 
-            <div className="rounded-2xl border border-white/10 bg-white/95 p-5 shadow-xl backdrop-blur-md">
+            <div className="rounded-2xl border border-white/10 bg-white/95 p-5 shadow-xl">
               <div className="mb-4 flex items-center justify-between">
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
                   Total Rekomendasi
@@ -351,7 +324,7 @@ export default function DashboardPage() {
               </div>
 
               <p className="text-3xl font-bold text-[#071426]">
-                {loading ? "—" : safeNumber(summary?.total)}
+                {loading ? "—" : total}
               </p>
 
               <p className="mt-2 text-xs text-slate-400">
@@ -361,7 +334,7 @@ export default function DashboardPage() {
 
             {/* BELUM TL */}
 
-            <div className="rounded-2xl border border-red-100 bg-white/95 p-5 shadow-xl backdrop-blur-md">
+            <div className="rounded-2xl border border-red-100 bg-white/95 p-5 shadow-xl">
               <div className="mb-4 flex items-center justify-between">
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
                   Belum TL
@@ -373,7 +346,7 @@ export default function DashboardPage() {
               </div>
 
               <p className="text-3xl font-bold text-red-600">
-                {loading ? "—" : safeNumber(summary?.belumTl)}
+                {loading ? "—" : belumTl}
               </p>
 
               <p className="mt-2 text-xs text-slate-400">
@@ -381,12 +354,12 @@ export default function DashboardPage() {
               </p>
             </div>
 
-            {/* BELUM TUNTAS */}
+            {/* SUDAH TL */}
 
-            <div className="rounded-2xl border border-amber-100 bg-white/95 p-5 shadow-xl backdrop-blur-md">
+            <div className="rounded-2xl border border-amber-100 bg-white/95 p-5 shadow-xl">
               <div className="mb-4 flex items-center justify-between">
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                  Belum Tuntas
+                  Sudah TL
                 </span>
 
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
@@ -395,17 +368,17 @@ export default function DashboardPage() {
               </div>
 
               <p className="text-3xl font-bold text-amber-600">
-                {loading ? "—" : safeNumber(summary?.belumTuntas)}
+                {loading ? "—" : sudahTl}
               </p>
 
               <p className="mt-2 text-xs text-slate-400">
-                Masih dalam proses tindak lanjut
+                Sudah dilakukan tindak lanjut
               </p>
             </div>
 
             {/* TUNTAS */}
 
-            <div className="rounded-2xl border border-green-100 bg-white/95 p-5 shadow-xl backdrop-blur-md">
+            <div className="rounded-2xl border border-green-100 bg-white/95 p-5 shadow-xl">
               <div className="mb-4 flex items-center justify-between">
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
                   Sudah Tuntas
@@ -417,7 +390,7 @@ export default function DashboardPage() {
               </div>
 
               <p className="text-3xl font-bold text-green-600">
-                {loading ? "—" : safeNumber(summary?.sudahTuntas)}
+                {loading ? "—" : sudahTuntas}
               </p>
 
               <p className="mt-2 text-xs text-slate-400">
@@ -427,9 +400,7 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        {/* =====================================================
-            BPK MONITORING
-        ====================================================== */}
+        {/* BPK */}
 
         <section className="mb-6">
           <div className="mb-4">
@@ -443,9 +414,9 @@ export default function DashboardPage() {
           </div>
 
           <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
-            {/* SALDO CARD */}
+            {/* SALDO */}
 
-            <div className="rounded-2xl border border-white/10 bg-white/95 p-6 shadow-xl backdrop-blur-md">
+            <div className="rounded-2xl border border-white/10 bg-white/95 p-6 shadow-xl">
               <div className="mb-6">
                 <h3 className="font-bold text-[#071426]">Persentase Saldo</h3>
 
@@ -497,7 +468,7 @@ export default function DashboardPage() {
 
             {/* CATEGORY */}
 
-            <div className="rounded-2xl border border-white/10 bg-white/95 p-6 shadow-xl backdrop-blur-md">
+            <div className="rounded-2xl border border-white/10 bg-white/95 p-6 shadow-xl">
               <div className="mb-6">
                 <h3 className="font-bold text-[#071426]">
                   Klasifikasi Rekomendasi
@@ -599,9 +570,7 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        {/* =====================================================
-            ITJEN MONITORING
-        ====================================================== */}
+        {/* ITJEN */}
 
         <section className="mb-6">
           <div className="mb-4">
@@ -614,7 +583,7 @@ export default function DashboardPage() {
             </h2>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/95 p-6 shadow-xl backdrop-blur-md">
+          <div className="rounded-2xl border border-white/10 bg-white/95 p-6 shadow-xl">
             <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
               {/* STATUS */}
 
@@ -628,7 +597,7 @@ export default function DashboardPage() {
                 </p>
 
                 <div className="mt-7 space-y-6">
-                  {/* SELESAI */}
+                  {/* TUNTAS */}
 
                   <div>
                     <div className="mb-2 flex items-center justify-between">
@@ -638,7 +607,7 @@ export default function DashboardPage() {
                       </span>
 
                       <span className="text-sm font-bold text-[#071426]">
-                        {itjenData.selesai}
+                        {itjenData.sudahTuntas}
                       </span>
                     </div>
 
@@ -646,23 +615,23 @@ export default function DashboardPage() {
                       <div
                         className="h-full rounded-full bg-green-500 transition-all"
                         style={{
-                          width: `${persentaseSelesai}%`,
+                          width: `${persentaseTuntas}%`,
                         }}
                       />
                     </div>
                   </div>
 
-                  {/* PROSES */}
+                  {/* SUDAH TL */}
 
                   <div>
                     <div className="mb-2 flex items-center justify-between">
                       <span className="flex items-center gap-2 text-sm font-medium text-slate-600">
                         <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
-                        Belum Tuntas
+                        Sudah TL
                       </span>
 
                       <span className="text-sm font-bold text-[#071426]">
-                        {itjenData.proses}
+                        {itjenData.sudahTl}
                       </span>
                     </div>
 
@@ -670,13 +639,13 @@ export default function DashboardPage() {
                       <div
                         className="h-full rounded-full bg-amber-500 transition-all"
                         style={{
-                          width: `${persentaseProses}%`,
+                          width: `${persentaseSudahTl}%`,
                         }}
                       />
                     </div>
                   </div>
 
-                  {/* BELUM */}
+                  {/* BELUM TL */}
 
                   <div>
                     <div className="mb-2 flex items-center justify-between">
@@ -686,7 +655,7 @@ export default function DashboardPage() {
                       </span>
 
                       <span className="text-sm font-bold text-[#071426]">
-                        {itjenData.belum}
+                        {itjenData.belumTl}
                       </span>
                     </div>
 
@@ -694,7 +663,7 @@ export default function DashboardPage() {
                       <div
                         className="h-full rounded-full bg-red-500 transition-all"
                         style={{
-                          width: `${persentaseBelum}%`,
+                          width: `${persentaseBelumTl}%`,
                         }}
                       />
                     </div>
@@ -717,14 +686,14 @@ export default function DashboardPage() {
                   className="relative mt-6 flex h-44 w-44 items-center justify-center rounded-full"
                   style={{
                     background: `conic-gradient(
-                      #16A34A ${persentaseSelesai}%,
-                      #E2E8F0 ${persentaseSelesai}% 100%
+                      #16A34A ${persentaseTuntas}%,
+                      #E2E8F0 ${persentaseTuntas}% 100%
                     )`,
                   }}
                 >
                   <div className="flex h-32 w-32 flex-col items-center justify-center rounded-full bg-white">
                     <span className="text-3xl font-bold text-[#071426]">
-                      {persentaseSelesai}%
+                      {persentaseTuntas}%
                     </span>
 
                     <span className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
@@ -734,18 +703,16 @@ export default function DashboardPage() {
                 </div>
 
                 <p className="mt-5 text-sm font-semibold text-slate-700">
-                  {itjenData.selesai} dari {itjenData.total} rekomendasi
+                  {itjenData.sudahTuntas} dari {itjenData.total} rekomendasi
                 </p>
               </div>
             </div>
           </div>
         </section>
 
-        {/* =====================================================
-            RECENT ACTIVITY
-        ====================================================== */}
+        {/* RECENT ACTIVITY */}
 
-        <section className="overflow-hidden rounded-2xl border border-white/10 bg-white/95 shadow-xl backdrop-blur-md">
+        <section className="overflow-hidden rounded-2xl border border-white/10 bg-white/95 shadow-xl">
           <div className="border-b border-slate-100 px-6 py-5">
             <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
               <div>
