@@ -8,7 +8,9 @@ type RecommendationItem = {
   recommendation: string;
   followUpStatus: string;
   saldoStatus: string;
-  description: string;
+  keterangan_1: string;
+  keterangan_2: string;
+  keterangan_3: string;
 };
 
 type Recommendation = {
@@ -22,7 +24,10 @@ type Recommendation = {
   saldo_status: string;
   temuan?: string | null;
   recommendation?: string | null;
-  description: string | null;
+  description?: string | null;
+  keterangan_1?: string | null;
+  keterangan_2?: string | null;
+  keterangan_3?: string | null;
 };
 
 type Props = {
@@ -41,7 +46,9 @@ const emptyItem = (): RecommendationItem => ({
   recommendation: "",
   followUpStatus: "BELUM_TL",
   saldoStatus: "BELUM_SALDO",
-  description: "",
+  keterangan_1: "",
+  keterangan_2: "",
+  keterangan_3: "",
 });
 
 const inputClass =
@@ -89,7 +96,9 @@ export default function RecommendationForm({
         recommendation: editingData.recommendation || "",
         followUpStatus: editingData.follow_up_status || "BELUM_TL",
         saldoStatus: editingData.saldo_status || "BELUM_SALDO",
-        description: editingData.description || "",
+        keterangan_1: editingData.keterangan_1 || "",
+        keterangan_2: editingData.keterangan_2 || "",
+        keterangan_3: editingData.keterangan_3 || "",
       },
     ]);
 
@@ -181,7 +190,9 @@ export default function RecommendationForm({
           recommendation: items[0].recommendation.trim(),
           followUpStatus: items[0].followUpStatus,
           saldoStatus: items[0].saldoStatus,
-          description: items[0].description.trim(),
+          keterangan_1: items[0].keterangan_1.trim(),
+          keterangan_2: items[0].keterangan_2.trim(),
+          keterangan_3: items[0].keterangan_3.trim(),
         }
       : {
           ...commonData,
@@ -190,7 +201,9 @@ export default function RecommendationForm({
             recommendation: item.recommendation.trim(),
             followUpStatus: item.followUpStatus,
             saldoStatus: item.saldoStatus,
-            description: item.description.trim(),
+            keterangan_1: item.keterangan_1.trim(),
+            keterangan_2: item.keterangan_2.trim(),
+            keterangan_3: item.keterangan_3.trim(),
           })),
         };
 
@@ -547,24 +560,97 @@ export default function RecommendationForm({
 
                     {/* KETERANGAN */}
                     <div>
-                      <label
-                        htmlFor={`description-${index}`}
-                        className={labelClass}
-                      >
-                        Keterangan
-                      </label>
+                      <div className="mb-4">
+                        <h4 className="text-sm font-bold text-slate-800">
+                          Keterangan
+                        </h4>
 
-                      <textarea
-                        id={`description-${index}`}
-                        rows={3}
-                        value={item.description}
-                        onChange={(event) =>
-                          updateItem(index, "description", event.target.value)
-                        }
-                        placeholder="Tambahkan keterangan jika diperlukan..."
-                        className={`${inputClass} resize-y`}
-                        disabled={loading}
-                      />
+                        <p className="mt-1 text-xs text-slate-500">
+                          Keterangan dibagi menjadi tiga bagian agar informasi
+                          lebih mudah dibaca dan tidak terlalu panjang dalam
+                          satu kolom.
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+                        {/* KETERANGAN 1 */}
+                        <div>
+                          <label
+                            htmlFor={`keterangan-1-${index}`}
+                            className={labelClass}
+                          >
+                            Keterangan 1
+                          </label>
+
+                          <textarea
+                            id={`keterangan-1-${index}`}
+                            rows={5}
+                            value={item.keterangan_1}
+                            onChange={(event) =>
+                              updateItem(
+                                index,
+                                "keterangan_1",
+                                event.target.value
+                              )
+                            }
+                            placeholder="Keterangan bagian pertama..."
+                            className={`${inputClass} resize-y`}
+                            disabled={loading}
+                          />
+                        </div>
+
+                        {/* KETERANGAN 2 */}
+                        <div>
+                          <label
+                            htmlFor={`keterangan-2-${index}`}
+                            className={labelClass}
+                          >
+                            Keterangan 2
+                          </label>
+
+                          <textarea
+                            id={`keterangan-2-${index}`}
+                            rows={5}
+                            value={item.keterangan_2}
+                            onChange={(event) =>
+                              updateItem(
+                                index,
+                                "keterangan_2",
+                                event.target.value
+                              )
+                            }
+                            placeholder="Keterangan bagian kedua..."
+                            className={`${inputClass} resize-y`}
+                            disabled={loading}
+                          />
+                        </div>
+
+                        {/* KETERANGAN 3 */}
+                        <div>
+                          <label
+                            htmlFor={`keterangan-3-${index}`}
+                            className={labelClass}
+                          >
+                            Keterangan 3
+                          </label>
+
+                          <textarea
+                            id={`keterangan-3-${index}`}
+                            rows={5}
+                            value={item.keterangan_3}
+                            onChange={(event) =>
+                              updateItem(
+                                index,
+                                "keterangan_3",
+                                event.target.value
+                              )
+                            }
+                            placeholder="Keterangan bagian ketiga..."
+                            className={`${inputClass} resize-y`}
+                            disabled={loading}
+                          />
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>

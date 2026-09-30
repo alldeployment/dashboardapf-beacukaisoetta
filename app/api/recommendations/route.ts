@@ -5,8 +5,8 @@ import { pool } from "@/lib/db";
  * Menghitung capaian otomatis berdasarkan
  * status tindak lanjut.
  *
- * BELUM_TL    = 0%
- * SUDAH_TL    = 50%
+ * BELUM_TL     = 0%
+ * SUDAH_TL     = 50%
  * SUDAH_TUNTAS = 100%
  */
 function calculateCapaian(followUpStatus: string): number {
@@ -29,7 +29,6 @@ function calculateCapaian(followUpStatus: string): number {
  * GET
  *
  * Mengambil seluruh rekomendasi.
- *
  * Setiap row = 1 rekomendasi.
  */
 export async function GET(request: NextRequest) {
@@ -50,7 +49,12 @@ export async function GET(request: NextRequest) {
         recommendation_count,
         temuan,
         recommendation,
+
         description,
+        keterangan_1,
+        keterangan_2,
+        keterangan_3,
+
         follow_up_status,
         saldo_status,
         capaian,
@@ -86,8 +90,8 @@ export async function GET(request: NextRequest) {
     const result = await pool.query(query, values);
 
     /**
-     * Capaian dihitung otomatis berdasarkan
-     * follow_up_status.
+     * Capaian tetap dihitung otomatis
+     * berdasarkan status tindak lanjut.
      */
     const data = result.rows.map((row) => ({
       ...row,
@@ -119,9 +123,6 @@ export async function GET(request: NextRequest) {
  *
  * Menambahkan satu atau beberapa rekomendasi
  * dalam satu LHA/LHP.
- *
- * Capaian TIDAK lagi dikirim manual.
- * Capaian otomatis dihitung dari status tindak lanjut.
  */
 export async function POST(request: NextRequest) {
   const client = await pool.connect();
@@ -151,9 +152,16 @@ export async function POST(request: NextRequest) {
         {
           temuan: body.temuan || "",
           recommendation: body.recommendation || "",
+
+          keterangan_1: body.keterangan_1 || "",
+          keterangan_2: body.keterangan_2 || "",
+          keterangan_3: body.keterangan_3 || "",
+
+          // Tetap dukung data lama
+          description: body.description || "",
+
           followUpStatus: body.followUpStatus,
           saldoStatus: body.saldoStatus,
-          description: body.description || "",
         },
       ];
     }
@@ -248,9 +256,6 @@ export async function POST(request: NextRequest) {
      * Masukkan seluruh rekomendasi.
      */
     for (const item of recommendationList) {
-      /**
-       * Capaian otomatis berdasarkan status.
-       */
       const capaian = calculateCapaian(item.followUpStatus);
 
       const result = await client.query(
@@ -262,9 +267,15 @@ export async function POST(request: NextRequest) {
           lha_date,
           recommendation_number,
           recommendation_count,
+
           temuan,
           recommendation,
+
           description,
+          keterangan_1,
+          keterangan_2,
+          keterangan_3,
+
           follow_up_status,
           saldo_status,
           capaian
@@ -276,12 +287,18 @@ export async function POST(request: NextRequest) {
           $4,
           $5,
           $6,
+
           $7,
           $8,
+
           $9,
           $10,
           $11,
-          $12
+          $12,
+
+          $13,
+          $14,
+          $15
         )
         RETURNING *
         `,
@@ -292,9 +309,17 @@ export async function POST(request: NextRequest) {
           lhaDate,
           nextNumber,
           recommendationList.length,
+
           item.temuan || "",
           item.recommendation || "",
+
+          // Data lama tetap dipertahankan
           item.description || "",
+
+          item.keterangan_1 || "",
+          item.keterangan_2 || "",
+          item.keterangan_3 || "",
+
           item.followUpStatus,
           item.saldoStatus,
           capaian,
@@ -355,9 +380,6 @@ export async function POST(request: NextRequest) {
  * PUT
  *
  * Mengubah data rekomendasi.
- *
- * Capaian otomatis dihitung ulang
- * berdasarkan follow_up_status.
  */
 export async function PUT(request: NextRequest) {
   try {
@@ -370,9 +392,15 @@ export async function PUT(request: NextRequest) {
       lhaNumber,
       lhaDate,
       recommendationNumber,
+
       temuan,
       recommendation,
+
       description,
+      keterangan_1,
+      keterangan_2,
+      keterangan_3,
+
       followUpStatus,
       saldoStatus,
     } = body;
@@ -442,16 +470,24 @@ export async function PUT(request: NextRequest) {
         category = $2,
         lha_number = $3,
         lha_date = $4,
+
         recommendation_number =
           COALESCE($5, recommendation_number),
+
         temuan = $6,
         recommendation = $7,
+
         description = $8,
-        follow_up_status = $9,
-        saldo_status = $10,
-        capaian = $11,
+        keterangan_1 = $9,
+        keterangan_2 = $10,
+        keterangan_3 = $11,
+
+        follow_up_status = $12,
+        saldo_status = $13,
+        capaian = $14,
+
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = $12
+      WHERE id = $15
       RETURNING *
       `,
       [
@@ -460,12 +496,19 @@ export async function PUT(request: NextRequest) {
         lhaNumber,
         lhaDate,
         recommendationNumber || null,
+
         temuan || "",
         recommendation || "",
+
         description || "",
+        keterangan_1 || "",
+        keterangan_2 || "",
+        keterangan_3 || "",
+
         followUpStatus,
         saldoStatus,
         capaian,
+
         id,
       ]
     );

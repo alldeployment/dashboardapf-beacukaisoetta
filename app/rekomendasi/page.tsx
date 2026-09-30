@@ -20,6 +20,9 @@ type Recommendation = {
   temuan?: string | null;
   recommendation?: string | null;
   description: string | null;
+  keterangan_1?: string | null;
+  keterangan_2?: string | null;
+  keterangan_3?: string | null;
   created_at?: string;
 };
 
@@ -373,7 +376,9 @@ export default function RekomendasiPage() {
         item.temuan?.toLowerCase().includes(keyword) ||
         item.recommendation?.toLowerCase().includes(keyword) ||
         item.description?.toLowerCase().includes(keyword) ||
-        String(item.recommendation_number).includes(keyword);
+        item.keterangan_1?.toLowerCase().includes(keyword) ||
+        item.keterangan_2?.toLowerCase().includes(keyword) ||
+        item.keterangan_3?.toLowerCase().includes(keyword);
 
       const matchesSource = source === "ALL" || item.source === source;
 
@@ -1282,10 +1287,22 @@ export default function RekomendasiPage() {
                           value={item.recommendation}
                         />
 
-                        <DetailBox
-                          title="Keterangan"
-                          value={item.description}
-                        />
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                          <DetailBox
+                            title="Keterangan 1"
+                            value={item.keterangan_1}
+                          />
+
+                          <DetailBox
+                            title="Keterangan 2"
+                            value={item.keterangan_2}
+                          />
+
+                          <DetailBox
+                            title="Keterangan 3"
+                            value={item.keterangan_3}
+                          />
+                        </div>
 
                         {/* CAPAIAN REKOMENDASI */}
                         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
