@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
+
 import RecommendationForm from "@/components/RecommendationForm";
 import ImportDocumentModal from "@/components/ImportDocumentModal";
 
@@ -10,9 +12,12 @@ type Recommendation = {
   category: string;
   lha_number: string;
   lha_date: string;
+  recommendation_number: number;
   recommendation_count: number;
+  capaian: number;
   follow_up_status: string;
   saldo_status: string;
+  temuan?: string | null;
   recommendation?: string | null;
   description: string | null;
   created_at?: string;
@@ -26,7 +31,6 @@ type Summary = {
   masukSaldo: number;
   belumSaldo: number;
   capaian: number;
-
   bpk: {
     total: number;
     masukSaldo: number;
@@ -35,13 +39,21 @@ type Summary = {
     bukanKeuangan: number;
     persentaseSaldo: number;
   };
-
   itjen: {
     total: number;
     belumTl: number;
     sudahTl: number;
     sudahTuntas: number;
   };
+};
+
+type LhpFolder = {
+  lha_number: string;
+  source: string;
+  category: string;
+  lha_date: string;
+  items: Recommendation[];
+  capaian: number;
 };
 
 const EMPTY_SUMMARY: Summary = {
@@ -52,7 +64,6 @@ const EMPTY_SUMMARY: Summary = {
   masukSaldo: 0,
   belumSaldo: 0,
   capaian: 0,
-
   bpk: {
     total: 0,
     masukSaldo: 0,
@@ -61,7 +72,6 @@ const EMPTY_SUMMARY: Summary = {
     bukanKeuangan: 0,
     persentaseSaldo: 0,
   },
-
   itjen: {
     total: 0,
     belumTl: 0,
@@ -70,9 +80,132 @@ const EMPTY_SUMMARY: Summary = {
   },
 };
 
+const STATUS_OPTIONS = [
+  { value: "ALL", label: "Semua Status" },
+  { value: "BELUM_TL", label: "Belum TL" },
+  { value: "SUDAH_TL", label: "Sudah TL" },
+  { value: "SUDAH_TUNTAS", label: "Sudah Tuntas" },
+];
+
+const SALDO_OPTIONS = [
+  { value: "ALL", label: "Semua Saldo" },
+  { value: "MASUK_SALDO", label: "Masuk Saldo" },
+  { value: "BELUM_SALDO", label: "Belum Saldo" },
+  { value: "TIDAK_RELEVAN", label: "Tidak Relevan" },
+];
+
+const CATEGORY_OPTIONS = [
+  { value: "ALL", label: "Semua Kategori" },
+  { value: "KEUANGAN", label: "Keuangan" },
+  { value: "BUKAN_KEUANGAN", label: "Bukan Keuangan" },
+];
+
+function formatDate(date: string) {
+  if (!date) return "-";
+
+  const parsed = new Date(date);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return date;
+  }
+
+  return parsed.toLocaleDateString("id-ID", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+function formatPercent(value: number) {
+  return `${Math.round(Number(value) || 0)}%`;
+}
+
+function normalizeStatus(status: string) {
+  if (status === "BELUM_TUNTAS") return "SUDAH_TL";
+  return status;
+}
+
+function getStatusLabel(status: string) {
+  const normalized = normalizeStatus(status);
+
+  if (normalized === "BELUM_TL") return "Belum TL";
+  if (normalized === "SUDAH_TL") return "Sudah TL";
+  if (normalized === "SUDAH_TUNTAS") return "Sudah Tuntas";
+
+  return status || "-";
+}
+
+function getSaldoLabel(status: string) {
+  if (status === "MASUK_SALDO") return "Masuk Saldo";
+  if (status === "BELUM_SALDO") return "Belum Saldo";
+  if (status === "TIDAK_RELEVAN") return "Tidak Relevan";
+
+  return status || "-";
+}
+
+function getSourceClass(source: string) {
+  if (source === "BPK") {
+    return "bg-blue-50 text-blue-700 border-blue-200";
+  }
+
+  return "bg-purple-50 text-purple-700 border-purple-200";
+}
+
+function getStatusClass(status: string) {
+  const normalized = normalizeStatus(status);
+
+  if (normalized === "SUDAH_TUNTAS") {
+    return "bg-green-50 text-green-700 border-green-200";
+  }
+
+  if (normalized === "SUDAH_TL") {
+    return "bg-blue-50 text-blue-700 border-blue-200";
+  }
+
+  return "bg-orange-50 text-orange-700 border-orange-200";
+}
+
+function getSaldoClass(status: string) {
+  if (status === "MASUK_SALDO") {
+    return "bg-green-50 text-green-700 border-green-200";
+  }
+
+  if (status === "BELUM_SALDO") {
+    return "bg-orange-50 text-orange-700 border-orange-200";
+  }
+
+  return "bg-gray-50 text-gray-600 border-gray-200";
+}
+
+/*
+ * Membaca response API dengan aman.
+ * Kalau server mengembalikan HTML/error page,
+ * kita tampilkan pesan yang lebih jelas daripada
+ * "Unexpected token <".
+ */
+async function readApiJson(response: Response) {
+  const text = await response.text();
+
+  if (!text.trim()) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(
+      `Server mengembalikan respons bukan JSON (${response.status}). ` +
+        text.replace(/\s+/g, " ").slice(0, 200)
+    );
+  }
+}
+
 export default function RekomendasiPage() {
   const [data, setData] = useState<Recommendation[]>([]);
   const [summary, setSummary] = useState<Summary>(EMPTY_SUMMARY);
+
+  // Capaian keseluruhan manual yang disimpan di database
+  const [manualCapaian, setManualCapaian] = useState(0);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -87,64 +220,123 @@ export default function RekomendasiPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Recommendation | null>(null);
 
-  const [detail, setDetail] = useState<Recommendation | null>(null);
+  const [detailFolder, setDetailFolder] = useState<LhpFolder | null>(null);
 
   const [showImport, setShowImport] = useState(false);
 
-  /* ============================================================
-     LOAD DATA
-  ============================================================ */
+  // Modal edit capaian keseluruhan
+  const [showCapaianModal, setShowCapaianModal] = useState(false);
+  const [capaianInput, setCapaianInput] = useState("0");
+  const [savingCapaian, setSavingCapaian] = useState(false);
 
-  async function loadData(isRefresh = false) {
+  /*
+   * LOAD DATA
+   */
+  const loadData = useCallback(async (showRefresh = false) => {
     try {
-      setError("");
-
-      if (isRefresh) {
+      if (showRefresh) {
         setRefreshing(true);
       } else {
         setLoading(true);
       }
 
-      const [dataRes, summaryRes] = await Promise.all([
-        fetch("/api/recommendations", {
-          cache: "no-store",
-        }),
+      setError("");
 
-        fetch("/api/dashboard/summary", {
-          cache: "no-store",
-        }),
-      ]);
+      const [recommendationResponse, summaryResponse, capaianResponse] =
+        await Promise.all([
+          fetch("/api/recommendations", {
+            cache: "no-store",
+          }),
 
-      if (!dataRes.ok) {
-        throw new Error("Gagal mengambil data rekomendasi.");
-      }
+          fetch("/api/dashboard/summary", {
+            cache: "no-store",
+          }),
 
-      const dataJson = await dataRes.json();
-      const summaryJson = await summaryRes.json();
+          fetch("/api/dashboard/capaian", {
+            cache: "no-store",
+          }),
+        ]);
 
-      if (!dataJson.ok) {
+      /*
+       * RECOMMENDATIONS
+       */
+      if (!recommendationResponse.ok) {
+        const errorJson = await readApiJson(recommendationResponse);
+
         throw new Error(
-          dataJson.message || "Gagal mengambil data rekomendasi."
+          errorJson?.message || "Gagal mengambil data rekomendasi."
         );
       }
 
-      setData(Array.isArray(dataJson.data) ? dataJson.data : []);
+      const recommendationJson = await readApiJson(recommendationResponse);
 
-      if (summaryJson.ok && summaryJson.data) {
+      const recommendationData = Array.isArray(recommendationJson)
+        ? recommendationJson
+        : recommendationJson?.data ?? recommendationJson?.recommendations ?? [];
+
+      const normalizedData: Recommendation[] = recommendationData.map(
+        (item: Recommendation) => ({
+          ...item,
+          id: Number(item.id),
+          capaian: Number(item.capaian) || 0,
+          recommendation_number: Number(item.recommendation_number) || 1,
+          recommendation_count: Number(item.recommendation_count) || 1,
+          follow_up_status: item.follow_up_status || "",
+          saldo_status: item.saldo_status || "",
+          source: item.source || "",
+          category: item.category || "",
+          lha_number: item.lha_number || "",
+          lha_date: item.lha_date || "",
+        })
+      );
+
+      setData(normalizedData);
+
+      /*
+       * SUMMARY
+       */
+      if (summaryResponse.ok) {
+        const summaryJson = await readApiJson(summaryResponse);
+
+        const summaryData =
+          summaryJson?.data ??
+          summaryJson?.summary ??
+          summaryJson ??
+          EMPTY_SUMMARY;
+
         setSummary({
           ...EMPTY_SUMMARY,
-          ...summaryJson.data,
-
+          ...summaryData,
           bpk: {
             ...EMPTY_SUMMARY.bpk,
-            ...(summaryJson.data.bpk || {}),
+            ...(summaryData?.bpk ?? {}),
           },
-
           itjen: {
             ...EMPTY_SUMMARY.itjen,
-            ...(summaryJson.data.itjen || {}),
+            ...(summaryData?.itjen ?? {}),
           },
         });
+      }
+
+      /*
+       * CAPAIAN MANUAL KESELURUHAN
+       */
+      if (capaianResponse.ok) {
+        const capaianJson = await readApiJson(capaianResponse);
+
+        const manualValue = Number(
+          capaianJson?.data?.capaian_manual ??
+            capaianJson?.data?.capaian ??
+            capaianJson?.capaian_manual ??
+            capaianJson?.capaian ??
+            0
+        );
+
+        setManualCapaian(Math.max(0, Math.min(100, Number(manualValue) || 0)));
+      } else {
+        const capaianError = await readApiJson(capaianResponse);
+
+        console.warn("Gagal mengambil capaian manual:", capaianError);
       }
     } catch (err) {
       console.error(err);
@@ -158,146 +350,198 @@ export default function RekomendasiPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
-  /* ============================================================
-     FILTER DATA
-  ============================================================ */
-
+  /*
+   * FILTER DATA
+   */
   const filteredData = useMemo(() => {
-    const q = search.toLowerCase().trim();
+    const keyword = search.trim().toLowerCase();
 
     return data.filter((item) => {
-      const matchSearch =
-        !q ||
-        item.lha_number?.toLowerCase().includes(q) ||
-        item.category?.toLowerCase().includes(q) ||
-        item.source?.toLowerCase().includes(q) ||
-        item.description?.toLowerCase().includes(q) ||
-        item.recommendation?.toLowerCase().includes(q);
+      const normalizedItemStatus = normalizeStatus(item.follow_up_status);
 
-      const matchSource = source === "ALL" || item.source === source;
+      const matchesSearch =
+        !keyword ||
+        item.lha_number?.toLowerCase().includes(keyword) ||
+        item.category?.toLowerCase().includes(keyword) ||
+        item.source?.toLowerCase().includes(keyword) ||
+        item.temuan?.toLowerCase().includes(keyword) ||
+        item.recommendation?.toLowerCase().includes(keyword) ||
+        item.description?.toLowerCase().includes(keyword) ||
+        String(item.recommendation_number).includes(keyword);
 
-      const matchCategory = category === "ALL" || item.category === category;
+      const matchesSource = source === "ALL" || item.source === source;
 
-      const matchStatus =
-        status === "ALL" ||
-        item.follow_up_status === status ||
-        (status === "SUDAH_TL" && item.follow_up_status === "BELUM_TUNTAS");
+      const matchesCategory = category === "ALL" || item.category === category;
 
-      const matchSaldo = saldo === "ALL" || item.saldo_status === saldo;
+      const matchesStatus = status === "ALL" || normalizedItemStatus === status;
+
+      const matchesSaldo = saldo === "ALL" || item.saldo_status === saldo;
 
       return (
-        matchSearch && matchSource && matchCategory && matchStatus && matchSaldo
+        matchesSearch &&
+        matchesSource &&
+        matchesCategory &&
+        matchesStatus &&
+        matchesSaldo
       );
     });
   }, [data, search, source, category, status, saldo]);
 
-  /* ============================================================
-     FILTER STATISTICS
-  ============================================================ */
+  /*
+   * GROUPING LHP/LHA
+   *
+   * Satu nomor LHP/LHA = satu folder.
+   */
+  const groupedFolders = useMemo<LhpFolder[]>(() => {
+    const map = new Map<string, Recommendation[]>();
 
-  const filteredStats = useMemo(() => {
-    const totalRecommendations = filteredData.reduce(
-      (sum, item) => sum + Number(item.recommendation_count || 0),
+    filteredData.forEach((item) => {
+      const key = item.lha_number?.trim() || `LHA-TANPA-NOMOR-${item.id}`;
+
+      const existing = map.get(key) ?? [];
+
+      existing.push(item);
+
+      map.set(key, existing);
+    });
+
+    return Array.from(map.entries()).map(([key, items]) => {
+      const sortedItems = [...items].sort(
+        (a, b) =>
+          (a.recommendation_number || 0) - (b.recommendation_number || 0)
+      );
+
+      const totalCapaian = sortedItems.reduce(
+        (total, item) => total + (Number(item.capaian) || 0),
+        0
+      );
+
+      const folderCapaian =
+        sortedItems.length > 0 ? totalCapaian / sortedItems.length : 0;
+
+      const first = sortedItems[0];
+
+      return {
+        lha_number: key.startsWith("LHA-TANPA-NOMOR-") ? first.lha_number : key,
+        source: first.source,
+        category: first.category,
+        lha_date: first.lha_date,
+        items: sortedItems,
+        capaian: folderCapaian,
+      };
+    });
+  }, [filteredData]);
+
+  /*
+   * CAPAIAN OTOMATIS SEMUA REKOMENDASI
+   */
+  const automaticCapaian = useMemo(() => {
+    return Number(summary.capaian) || 0;
+  }, [summary.capaian]);
+
+  /*
+   * CAPAIAN OTOMATIS SESUAI FILTER
+   */
+  const filteredAutomaticCapaian = useMemo(() => {
+    if (filteredData.length === 0) return 0;
+
+    const total = filteredData.reduce(
+      (sum, item) => sum + (Number(item.capaian) || 0),
       0
     );
 
-    const totalDocuments = filteredData.length;
-
-    const completed = filteredData
-      .filter((item) => item.follow_up_status === "SUDAH_TUNTAS")
-      .reduce((sum, item) => sum + Number(item.recommendation_count || 0), 0);
-
-    const sudahTl = filteredData
-      .filter(
-        (item) =>
-          item.follow_up_status === "SUDAH_TL" ||
-          item.follow_up_status === "BELUM_TUNTAS"
-      )
-      .reduce((sum, item) => sum + Number(item.recommendation_count || 0), 0);
-
-    const belumTl = filteredData
-      .filter((item) => item.follow_up_status === "BELUM_TL")
-      .reduce((sum, item) => sum + Number(item.recommendation_count || 0), 0);
-
-    const masukSaldo = filteredData
-      .filter((item) => item.saldo_status === "MASUK_SALDO")
-      .reduce((sum, item) => sum + Number(item.recommendation_count || 0), 0);
-
-    const capaian =
-      totalRecommendations > 0 ? (completed / totalRecommendations) * 100 : 0;
-
-    return {
-      totalDocuments,
-      totalRecommendations,
-      completed,
-      sudahTl,
-      belumTl,
-      masukSaldo,
-      capaian,
-    };
+    return total / filteredData.length;
   }, [filteredData]);
 
-  /* ============================================================
-     DELETE
-  ============================================================ */
+  /*
+   * STATISTIK FILTER
+   */
+  const filteredStats = useMemo(() => {
+    const total = filteredData.length;
 
-  async function deleteData(id: number) {
+    const belumTl = filteredData.filter(
+      (item) => normalizeStatus(item.follow_up_status) === "BELUM_TL"
+    ).length;
+
+    const sudahTl = filteredData.filter(
+      (item) => normalizeStatus(item.follow_up_status) === "SUDAH_TL"
+    ).length;
+
+    const sudahTuntas = filteredData.filter(
+      (item) => normalizeStatus(item.follow_up_status) === "SUDAH_TUNTAS"
+    ).length;
+
+    const masukSaldo = filteredData.filter(
+      (item) => item.saldo_status === "MASUK_SALDO"
+    ).length;
+
+    const belumSaldo = filteredData.filter(
+      (item) => item.saldo_status === "BELUM_SALDO"
+    ).length;
+
+    return {
+      total,
+      belumTl,
+      sudahTl,
+      sudahTuntas,
+      masukSaldo,
+      belumSaldo,
+      capaian: filteredAutomaticCapaian,
+    };
+  }, [filteredData, filteredAutomaticCapaian]);
+
+  /*
+   * DELETE
+   */
+  async function deleteData(item: Recommendation) {
     const confirmed = window.confirm(
-      "Apakah kamu yakin ingin menghapus rekomendasi ini?"
+      `Hapus rekomendasi #${item.recommendation_number} dari ${item.lha_number}?`
     );
 
     if (!confirmed) return;
 
     try {
-      const res = await fetch(`/api/recommendations?id=${id}`, {
+      const response = await fetch(`/api/recommendations?id=${item.id}`, {
         method: "DELETE",
-        cache: "no-store",
       });
 
-      const json = await res.json();
+      const result = await readApiJson(response);
 
-      if (!res.ok || !json.ok) {
-        alert(json.message || "Gagal menghapus data.");
-        return;
+      if (!response.ok) {
+        throw new Error(result?.message || "Gagal menghapus data.");
       }
 
-      // Tutup detail drawer
-      setDetail(null);
+      setDetailFolder(null);
 
-      // Hapus langsung dari tampilan
-      setData((prev) => prev.filter((item) => item.id !== id));
-
-      // Ambil ulang data + summary
       await loadData(true);
-
-      alert("Rekomendasi berhasil dihapus.");
     } catch (err) {
-      console.error("DELETE ERROR:", err);
+      console.error(err);
 
-      alert(
-        err instanceof Error
-          ? err.message
-          : "Terjadi kesalahan saat menghapus data."
-      );
+      alert(err instanceof Error ? err.message : "Gagal menghapus data.");
     }
   }
 
-  /* ============================================================
-     FORM
-  ============================================================ */
-
+  /*
+   * EDIT DATA REKOMENDASI
+   *
+   * Tidak ada edit capaian di sini.
+   * Capaian keseluruhan diedit melalui KPI dashboard.
+   */
   function editData(item: Recommendation) {
-    setDetail(null);
+    setDetailFolder(null);
     setEditing(item);
     setShowForm(true);
   }
 
+  /*
+   * TAMBAH DATA
+   */
   function openAddForm() {
     setEditing(null);
     setShowForm(true);
@@ -308,10 +552,96 @@ export default function RekomendasiPage() {
     setEditing(null);
   }
 
-  /* ============================================================
-     FILTER RESET
-  ============================================================ */
+  /*
+   * DETAIL FOLDER
+   */
+  function openFolder(folder: LhpFolder) {
+    setDetailFolder(folder);
+  }
 
+  function closeFolder() {
+    setDetailFolder(null);
+  }
+
+  /*
+   * EDIT CAPAIAN KESELURUHAN
+   */
+  function openCapaianEdit() {
+    setCapaianInput(String(manualCapaian));
+    setShowCapaianModal(true);
+  }
+
+  function closeCapaianEdit() {
+    if (savingCapaian) return;
+
+    setShowCapaianModal(false);
+    setCapaianInput(String(manualCapaian));
+  }
+
+  /*
+   * SIMPAN CAPAIAN KESELURUHAN
+   */
+  async function saveCapaian() {
+    let value = Number(capaianInput);
+
+    if (Number.isNaN(value)) {
+      alert("Capaian harus berupa angka.");
+      return;
+    }
+
+    value = Math.max(0, Math.min(100, value));
+
+    try {
+      setSavingCapaian(true);
+
+      const response = await fetch("/api/dashboard/capaian", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          capaian_manual: value,
+        }),
+      });
+
+      const result = await readApiJson(response);
+
+      if (!response.ok) {
+        throw new Error(
+          result?.message || "Gagal menyimpan capaian keseluruhan."
+        );
+      }
+
+      const savedValue = Number(
+        result?.data?.capaian_manual ?? result?.data?.capaian ?? value
+      );
+
+      const safeSavedValue = Math.max(
+        0,
+        Math.min(100, Number(savedValue) || 0)
+      );
+
+      setManualCapaian(safeSavedValue);
+      setShowCapaianModal(false);
+      setCapaianInput(String(safeSavedValue));
+
+      await loadData(true);
+    } catch (err) {
+      console.error(err);
+
+      alert(
+        err instanceof Error
+          ? err.message
+          : "Gagal menyimpan capaian keseluruhan."
+      );
+    } finally {
+      setSavingCapaian(false);
+    }
+  }
+
+  /*
+   * RESET FILTER
+   */
   function resetFilters() {
     setSearch("");
     setSource("ALL");
@@ -320,756 +650,478 @@ export default function RekomendasiPage() {
     setSaldo("ALL");
   }
 
-  /* ============================================================
-     FORMAT DATE
-  ============================================================ */
-
-  function formatDate(date: string) {
-    if (!date) return "-";
-
-    try {
-      return new Date(date).toLocaleDateString("id-ID", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      });
-    } catch {
-      return date;
-    }
-  }
-
-  /* ============================================================
-     STATUS
-  ============================================================ */
-
-  function statusText(value: string) {
-    switch (value) {
-      case "BELUM_TL":
-        return "Belum TL";
-
-      case "SUDAH_TL":
-        return "Sudah TL";
-
-      // Kompatibilitas data lama
-      case "BELUM_TUNTAS":
-        return "Sudah TL";
-
-      case "SUDAH_TUNTAS":
-        return "Sudah Tuntas";
-
-      default:
-        return value || "-";
-    }
-  }
-
-  function saldoText(value: string) {
-    switch (value) {
-      case "MASUK_SALDO":
-        return "Masuk Saldo";
-
-      case "BELUM_SALDO":
-        return "Belum Saldo";
-
-      case "TIDAK_RELEVAN":
-        return "Tidak Relevan";
-
-      default:
-        return value || "-";
-    }
-  }
-
-  function statusClass(value: string) {
-    switch (value) {
-      case "BELUM_TL":
-        return "bg-red-50 text-red-700 ring-1 ring-inset ring-red-100";
-
-      case "SUDAH_TL":
-      case "BELUM_TUNTAS":
-        return "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-100";
-
-      case "SUDAH_TUNTAS":
-        return "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-100";
-
-      default:
-        return "bg-slate-100 text-slate-600";
-    }
-  }
-
-  function saldoClass(value: string) {
-    switch (value) {
-      case "MASUK_SALDO":
-        return "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-100";
-
-      case "BELUM_SALDO":
-        return "bg-red-50 text-red-700 ring-1 ring-inset ring-red-100";
-
-      case "TIDAK_RELEVAN":
-        return "bg-slate-100 text-slate-500 ring-1 ring-inset ring-slate-200";
-
-      default:
-        return "bg-slate-100 text-slate-500";
-    }
-  }
-
-  /* ============================================================
-     OTHER
-  ============================================================ */
-
   const hasFilter =
-    search.trim() !== "" ||
+    Boolean(search) ||
     source !== "ALL" ||
     category !== "ALL" ||
     status !== "ALL" ||
     saldo !== "ALL";
 
-  const itjenProgress =
-    summary.itjen.total > 0
-      ? (summary.itjen.sudahTuntas / summary.itjen.total) * 100
-      : 0;
-
   return (
-    <>
-      <div className="min-h-[calc(100vh-80px)] bg-[#F4F7FB]">
-        <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-          {/* ==================================================
-              HEADER
-          ================================================== */}
-
-          <section className="mb-7">
-            <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-              <div>
-                <div className="mb-3 flex items-center gap-2 text-[11px] font-medium">
-                  <span className="text-slate-400">Data Management</span>
-
-                  <span className="text-slate-300">/</span>
-
-                  <span className="text-[#A77D16]">Rekomendasi</span>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-1 rounded-full bg-[#D4A72C]" />
-
-                  <div>
-                    <h1 className="text-2xl font-bold tracking-tight text-[#071426] sm:text-3xl">
-                      Monitoring Rekomendasi APF
-                    </h1>
-
-                    <p className="mt-1 text-sm text-slate-500">
-                      Monitoring dan pengelolaan tindak lanjut hasil pemeriksaan
-                      BPK dan Itjen.
-                    </p>
-                  </div>
-                </div>
+    <main className="min-h-screen bg-slate-50 p-4 md:p-6">
+      <div className="mx-auto max-w-[1600px] space-y-6">
+        {/* HEADER */}
+        <section className="rounded-2xl bg-gradient-to-r from-slate-900 via-blue-900 to-slate-800 p-6 text-white shadow-xl">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-medium">
+                Monitoring APF
               </div>
 
-              {/* ACTION HEADER */}
+              <h1 className="text-2xl font-bold md:text-3xl">
+                Dashboard Monitoring Rekomendasi
+              </h1>
 
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <button
-                  type="button"
-                  onClick={() => setShowImport(true)}
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#D4A72C] bg-white px-5 text-sm font-semibold text-[#A77D16] shadow-sm transition hover:bg-amber-50 active:scale-[0.98]"
-                >
-                  <span className="text-lg leading-none">↑</span>
-                  Import Dokumen
-                </button>
-
-                <button
-                  type="button"
-                  onClick={openAddForm}
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#071426] px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#10294a] active:scale-[0.98]"
-                >
-                  <span className="text-xl leading-none">+</span>
-                  Tambah Rekomendasi
-                </button>
-              </div>
-            </div>
-          </section>
-
-          {/* ==================================================
-              KPI
-          ================================================== */}
-
-          <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <KpiCard
-              label="Total Rekomendasi"
-              value={summary.total}
-              description="Seluruh rekomendasi"
-              icon="#"
-            />
-
-            <KpiCard
-              label="Sudah Tuntas"
-              value={summary.sudahTuntas}
-              description="Rekomendasi selesai"
-              icon="✓"
-              variant="green"
-            />
-
-            <KpiCard
-              label="Sudah TL"
-              value={summary.sudahTl}
-              description="Sudah tindak lanjut"
-              icon="→"
-              variant="amber"
-            />
-
-            <KpiCard
-              label="Capaian"
-              value={`${Number(summary.capaian || 0).toFixed(1)}%`}
-              description="Persentase penyelesaian"
-              icon="%"
-              variant="gold"
-              progress={summary.capaian}
-            />
-          </section>
-
-          {/* ==================================================
-              SOURCE MONITORING
-          ================================================== */}
-
-          <section className="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-2">
-            {/* BPK */}
-
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#071426] text-xs font-bold text-[#D4A72C]">
-                    BPK
-                  </div>
-
-                  <div>
-                    <p className="text-sm font-bold text-[#071426]">
-                      Pemeriksaan BPK
-                    </p>
-
-                    <p className="mt-0.5 text-xs text-slate-400">
-                      Rekapitulasi rekomendasi BPK
-                    </p>
-                  </div>
-                </div>
-
-                <div className="text-right">
-                  <p className="text-xl font-bold text-[#071426]">
-                    {summary.bpk.total}
-                  </p>
-
-                  <p className="text-[10px] uppercase tracking-wide text-slate-400">
-                    Rekomendasi
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-5">
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-xs font-medium text-slate-500">
-                    Capaian Saldo
-                  </span>
-
-                  <span className="text-xs font-bold text-[#071426]">
-                    {Number(summary.bpk.persentaseSaldo || 0).toFixed(0)}%
-                  </span>
-                </div>
-
-                <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                  <div
-                    className="h-full rounded-full bg-[#D4A72C] transition-all duration-500"
-                    style={{
-                      width: `${Math.min(
-                        Number(summary.bpk.persentaseSaldo || 0),
-                        100
-                      )}%`,
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div className="mt-5 grid grid-cols-3 divide-x divide-slate-100 rounded-xl border border-slate-100 bg-slate-50">
-                <MiniStat
-                  label="Masuk Saldo"
-                  value={summary.bpk.masukSaldo}
-                  color="green"
-                />
-
-                <MiniStat
-                  label="Belum Saldo"
-                  value={summary.bpk.belumSaldo}
-                  color="red"
-                />
-
-                <MiniStat
-                  label="Keuangan"
-                  value={summary.bpk.keuangan}
-                  color="dark"
-                />
-              </div>
+              <p className="mt-2 max-w-3xl text-sm text-slate-200">
+                Kelola LHP/LHA sebagai folder yang berisi satu atau beberapa
+                rekomendasi. Capaian rekomendasi dihitung oleh sistem, sedangkan
+                capaian keseluruhan dapat ditentukan secara manual.
+              </p>
             </div>
 
-            {/* ITJEN */}
-
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#071426] text-xs font-bold text-[#D4A72C]">
-                    ITJ
-                  </div>
-
-                  <div>
-                    <p className="text-sm font-bold text-[#071426]">
-                      Pemeriksaan Itjen
-                    </p>
-
-                    <p className="mt-0.5 text-xs text-slate-400">
-                      Rekapitulasi tindak lanjut Itjen
-                    </p>
-                  </div>
-                </div>
-
-                <div className="text-right">
-                  <p className="text-xl font-bold text-[#071426]">
-                    {summary.itjen.total}
-                  </p>
-
-                  <p className="text-[10px] uppercase tracking-wide text-slate-400">
-                    Rekomendasi
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-5">
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-xs font-medium text-slate-500">
-                    Penyelesaian
-                  </span>
-
-                  <span className="text-xs font-bold text-[#071426]">
-                    {itjenProgress.toFixed(0)}%
-                  </span>
-                </div>
-
-                <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                  <div
-                    className="h-full rounded-full bg-emerald-500 transition-all duration-500"
-                    style={{
-                      width: `${Math.min(itjenProgress, 100)}%`,
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div className="mt-5 grid grid-cols-3 divide-x divide-slate-100 rounded-xl border border-slate-100 bg-slate-50">
-                <MiniStat
-                  label="Sudah Tuntas"
-                  value={summary.itjen.sudahTuntas}
-                  color="green"
-                />
-
-                <MiniStat
-                  label="Sudah TL"
-                  value={summary.itjen.sudahTl}
-                  color="amber"
-                />
-
-                <MiniStat
-                  label="Belum TL"
-                  value={summary.itjen.belumTl}
-                  color="red"
-                />
-              </div>
-            </div>
-          </section>
-
-          {/* ==================================================
-              DATA TABLE
-          ================================================== */}
-
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            {/* TOOLBAR */}
-
-            <div className="border-b border-slate-200 px-4 py-5 sm:px-5">
-              <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
-                <div>
-                  <div className="flex items-center gap-3">
-                    <h2 className="text-base font-bold text-[#071426]">
-                      Daftar Rekomendasi
-                    </h2>
-
-                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-500">
-                      {filteredData.length} dokumen
-                    </span>
-                  </div>
-
-                  <p className="mt-1 text-xs text-slate-400">
-                    Kelola seluruh data rekomendasi yang tersimpan.
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <FilterButton
-                    active={source === "ALL"}
-                    onClick={() => setSource("ALL")}
-                  >
-                    Semua
-                  </FilterButton>
-
-                  <FilterButton
-                    active={source === "BPK"}
-                    onClick={() => setSource("BPK")}
-                  >
-                    BPK
-                  </FilterButton>
-
-                  <FilterButton
-                    active={source === "ITJEN"}
-                    onClick={() => setSource("ITJEN")}
-                  >
-                    Itjen
-                  </FilterButton>
-                </div>
-              </div>
-
-              {/* SEARCH */}
-
-              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[1fr_180px_180px_180px_auto]">
-                <div className="relative">
-                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm text-slate-400">
-                    ⌕
-                  </span>
-
-                  <input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Cari nomor LHA, kategori, sumber, rekomendasi..."
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-4 text-sm outline-none transition placeholder:text-slate-400 focus:border-[#D4A72C] focus:bg-white"
-                  />
-                </div>
-
-                <select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-600 outline-none focus:border-[#D4A72C] focus:bg-white"
-                >
-                  <option value="ALL">Semua Kategori</option>
-
-                  <option value="Laporan Keuangan">Laporan Keuangan</option>
-
-                  <option value="Bukan Keuangan">Bukan Keuangan</option>
-
-                  <option value="Tindak Lanjut Pemeriksaan">
-                    Tindak Lanjut Pemeriksaan
-                  </option>
-                </select>
-
-                <select
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value)}
-                  className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-600 outline-none focus:border-[#D4A72C] focus:bg-white"
-                >
-                  <option value="ALL">Semua Status</option>
-
-                  <option value="BELUM_TL">Belum TL</option>
-
-                  <option value="SUDAH_TL">Sudah TL</option>
-
-                  <option value="SUDAH_TUNTAS">Sudah Tuntas</option>
-                </select>
-
-                <select
-                  value={saldo}
-                  onChange={(e) => setSaldo(e.target.value)}
-                  className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-600 outline-none focus:border-[#D4A72C] focus:bg-white"
-                >
-                  <option value="ALL">Semua Saldo</option>
-
-                  <option value="MASUK_SALDO">Masuk Saldo</option>
-
-                  <option value="BELUM_SALDO">Belum Saldo</option>
-
-                  <option value="TIDAK_RELEVAN">Tidak Relevan</option>
-                </select>
-
-                <button
-                  onClick={() => loadData(true)}
-                  disabled={refreshing}
-                  className="h-11 rounded-xl border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-500 transition hover:border-[#D4A72C] hover:text-[#A77D16] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {refreshing ? "Memuat..." : "↻ Refresh"}
-                </button>
-              </div>
-
-              {/* ACTIVE FILTER */}
-
-              {hasFilter && (
-                <div className="mt-4 flex flex-wrap items-center gap-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                    Filter aktif:
-                  </span>
-
-                  {source !== "ALL" && (
-                    <ActiveFilter label={`Sumber: ${source}`} />
-                  )}
-
-                  {category !== "ALL" && (
-                    <ActiveFilter label={`Kategori: ${category}`} />
-                  )}
-
-                  {status !== "ALL" && (
-                    <ActiveFilter label={`Status: ${statusText(status)}`} />
-                  )}
-
-                  {saldo !== "ALL" && (
-                    <ActiveFilter label={`Saldo: ${saldoText(saldo)}`} />
-                  )}
-
-                  {search && <ActiveFilter label={`Pencarian: "${search}"`} />}
-
-                  <button
-                    onClick={resetFilters}
-                    className="ml-1 text-[10px] font-semibold text-[#A77D16] hover:underline"
-                  >
-                    Reset
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* FILTER SUMMARY */}
-
-            <div className="grid grid-cols-2 border-b border-slate-100 bg-[#FAFBFC] sm:grid-cols-4">
-              <FilterSummary
-                label="Dokumen"
-                value={filteredStats.totalDocuments}
-              />
-
-              <FilterSummary
-                label="Rekomendasi"
-                value={filteredStats.totalRecommendations}
-              />
-
-              <FilterSummary
-                label="Sudah Tuntas"
-                value={filteredStats.completed}
-                valueClass="text-emerald-600"
-              />
-
-              <FilterSummary
-                label="Masuk Saldo"
-                value={filteredStats.masukSaldo}
-                valueClass="text-[#A77D16]"
-              />
-            </div>
-
-            {/* ERROR */}
-
-            {error && (
-              <div className="m-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                <div className="flex items-center justify-between gap-3">
-                  <span>{error}</span>
-
-                  <button
-                    onClick={() => loadData()}
-                    className="font-semibold underline"
-                  >
-                    Coba lagi
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* TABLE */}
-
-            <div className="overflow-x-auto">
-              {loading ? (
-                <LoadingState />
-              ) : filteredData.length === 0 ? (
-                <EmptyState
-                  hasFilter={hasFilter}
-                  onReset={resetFilters}
-                  onAdd={openAddForm}
-                />
-              ) : (
-                <table className="w-full min-w-[1150px]">
-                  <thead>
-                    <tr className="border-b border-slate-100 bg-[#FAFBFC]">
-                      <th className="w-16 px-5 py-4 text-left text-[9px] font-bold uppercase tracking-[0.14em] text-slate-400">
-                        No
-                      </th>
-
-                      <th className="w-24 px-4 py-4 text-left text-[9px] font-bold uppercase tracking-[0.14em] text-slate-400">
-                        Sumber
-                      </th>
-
-                      <th className="px-4 py-4 text-left text-[9px] font-bold uppercase tracking-[0.14em] text-slate-400">
-                        LHA / LHP
-                      </th>
-
-                      <th className="w-32 px-4 py-4 text-left text-[9px] font-bold uppercase tracking-[0.14em] text-slate-400">
-                        Tanggal
-                      </th>
-
-                      <th className="w-20 px-4 py-4 text-center text-[9px] font-bold uppercase tracking-[0.14em] text-slate-400">
-                        Rek.
-                      </th>
-
-                      <th className="w-36 px-4 py-4 text-left text-[9px] font-bold uppercase tracking-[0.14em] text-slate-400">
-                        Tindak Lanjut
-                      </th>
-
-                      <th className="w-32 px-4 py-4 text-left text-[9px] font-bold uppercase tracking-[0.14em] text-slate-400">
-                        Saldo
-                      </th>
-
-                      <th className="w-40 px-5 py-4 text-right text-[9px] font-bold uppercase tracking-[0.14em] text-slate-400">
-                        Aksi
-                      </th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {filteredData.map((item, index) => (
-                      <tr
-                        key={item.id}
-                        onClick={() => setDetail(item)}
-                        className="group cursor-pointer border-b border-slate-100 transition hover:bg-[#FAFBFC]"
-                      >
-                        <td className="px-5 py-4 text-xs font-medium text-slate-400">
-                          {String(index + 1).padStart(2, "0")}
-                        </td>
-
-                        <td className="px-4 py-4">
-                          <span className="inline-flex items-center rounded-md bg-[#071426] px-2.5 py-1.5 text-[9px] font-bold tracking-wide text-[#D4A72C]">
-                            {item.source}
-                          </span>
-                        </td>
-
-                        <td className="max-w-[360px] px-4 py-4">
-                          <p className="truncate text-sm font-semibold text-slate-700">
-                            {item.lha_number}
-                          </p>
-
-                          <p className="mt-1 truncate text-[11px] text-slate-400">
-                            {item.category}
-                          </p>
-
-                          {item.recommendation && (
-                            <p className="mt-1 truncate text-[10px] text-slate-400">
-                              {item.recommendation}
-                            </p>
-                          )}
-                        </td>
-
-                        <td className="px-4 py-4 text-xs font-medium text-slate-500">
-                          {formatDate(item.lha_date)}
-                        </td>
-
-                        <td className="px-4 py-4 text-center">
-                          <span className="text-sm font-bold text-[#071426]">
-                            {item.recommendation_count}
-                          </span>
-                        </td>
-
-                        <td className="px-4 py-4">
-                          <span
-                            className={`inline-flex rounded-md px-2.5 py-1.5 text-[9px] font-bold ${statusClass(
-                              item.follow_up_status
-                            )}`}
-                          >
-                            {statusText(item.follow_up_status)}
-                          </span>
-                        </td>
-
-                        <td className="px-4 py-4">
-                          <span
-                            className={`inline-flex rounded-md px-2.5 py-1.5 text-[9px] font-semibold ${saldoClass(
-                              item.saldo_status
-                            )}`}
-                          >
-                            {saldoText(item.saldo_status)}
-                          </span>
-                        </td>
-
-                        <td
-                          className="px-5 py-4"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <div className="flex justify-end gap-1.5 opacity-70 transition group-hover:opacity-100">
-                            <button
-                              onClick={() => editData(item)}
-                              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 transition hover:border-[#D4A72C] hover:text-[#A77D16]"
-                            >
-                              Edit
-                            </button>
-
-                            <button
-                              onClick={() => deleteData(item.id)}
-                              className="rounded-lg border border-red-100 bg-white px-3 py-1.5 text-[11px] font-semibold text-red-600 transition hover:bg-red-50"
-                            >
-                              Hapus
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-
-            {/* FOOTER */}
-
-            {!loading && filteredData.length > 0 && (
-              <div className="flex flex-col gap-2 border-t border-slate-100 bg-[#FAFBFC] px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-[11px] text-slate-400">
-                  Menampilkan{" "}
-                  <span className="font-semibold text-slate-600">
-                    {filteredData.length}
-                  </span>{" "}
-                  dokumen dengan{" "}
-                  <span className="font-semibold text-slate-600">
-                    {filteredStats.totalRecommendations}
-                  </span>{" "}
-                  rekomendasi.
-                </p>
-
-                <button
-                  onClick={() => loadData(true)}
-                  className="text-[11px] font-semibold text-[#A77D16] hover:underline"
-                >
-                  ↻ Perbarui data
-                </button>
-              </div>
-            )}
-          </section>
-        </div>
-      </div>
-
-      {/* ========================================================
-          ADD / EDIT MODAL
-      ======================================================== */}
-
-      {showForm && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#071426]/60 p-4 backdrop-blur-sm">
-          <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4 sm:px-6">
-              <div>
-                <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#A77D16]">
-                  APF DATA MANAGEMENT
-                </p>
-
-                <h2 className="mt-1 text-lg font-bold text-[#071426]">
-                  {editing ? "Edit Rekomendasi" : "Tambah Rekomendasi"}
-                </h2>
-              </div>
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => setShowImport(true)}
+                className="rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-semibold transition hover:bg-white/20"
+              >
+                Import Dokumen
+              </button>
 
               <button
-                onClick={closeForm}
-                className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-lg text-slate-500 transition hover:bg-slate-200"
+                type="button"
+                onClick={openAddForm}
+                className="rounded-xl bg-white px-4 py-3 text-sm font-bold text-slate-900 shadow-lg transition hover:bg-slate-100"
               >
-                ×
+                + Tambah LHP / LHA
               </button>
             </div>
+          </div>
+        </section>
 
-            <div className="p-5 sm:p-6">
+        {/* ERROR */}
+        {error && (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            <div className="font-semibold">Terjadi kesalahan</div>
+
+            <div className="mt-1">{error}</div>
+
+            <button
+              type="button"
+              onClick={() => loadData(true)}
+              className="mt-3 rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700"
+            >
+              Coba Lagi
+            </button>
+          </div>
+        )}
+
+        {/* KPI */}
+        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <KpiCard
+            title="Total Rekomendasi"
+            value={summary.total || data.length}
+            description={`${groupedFolders.length} folder LHP/LHA`}
+            icon="📋"
+          />
+
+          <KpiCard
+            title="Belum TL"
+            value={summary.belumTl || filteredStats.belumTl}
+            description="Masih membutuhkan tindak lanjut"
+            icon="⏳"
+          />
+
+          <KpiCard
+            title="Sudah TL"
+            value={summary.sudahTl || filteredStats.sudahTl}
+            description="Sudah dilakukan tindak lanjut"
+            icon="🔄"
+          />
+
+          <KpiCard
+            title="Sudah Tuntas"
+            value={summary.sudahTuntas || filteredStats.sudahTuntas}
+            description="Rekomendasi telah tuntas"
+            icon="✅"
+          />
+
+          {/* CAPAIAN OTOMATIS */}
+          <KpiCard
+            title="Capaian"
+            value={formatPercent(
+              data.length > 0 ? automaticCapaian : summary.capaian
+            )}
+            description="Hasil perhitungan Sistem"
+            icon="📈"
+          />
+
+          {/* CAPAIAN MANUAL */}
+          <KpiCard
+            title="Capaian"
+            value={
+              <div className="flex items-center gap-2">
+                <span>{formatPercent(manualCapaian)}</span>
+
+                <button
+                  type="button"
+                  onClick={openCapaianEdit}
+                  className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700 transition hover:bg-blue-100"
+                >
+                  Edit
+                </button>
+              </div>
+            }
+            description="Nilai keseluruhan"
+            icon="🎯"
+          />
+        </section>
+
+        {/* BPK + ITJEN */}
+        <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <SummaryPanel
+            title="BPK"
+            icon="🏛️"
+            total={summary.bpk.total}
+            items={[
+              {
+                label: "Masuk Saldo",
+                value: summary.bpk.masukSaldo,
+              },
+              {
+                label: "Belum Saldo",
+                value: summary.bpk.belumSaldo,
+              },
+              {
+                label: "Keuangan",
+                value: summary.bpk.keuangan,
+              },
+              {
+                label: "Bukan Keuangan",
+                value: summary.bpk.bukanKeuangan,
+              },
+            ]}
+          />
+
+          <SummaryPanel
+            title="ITJEN"
+            icon="🛡️"
+            total={summary.itjen.total}
+            items={[
+              {
+                label: "Belum TL",
+                value: summary.itjen.belumTl,
+              },
+              {
+                label: "Sudah TL",
+                value: summary.itjen.sudahTl,
+              },
+              {
+                label: "Sudah Tuntas",
+                value: summary.itjen.sudahTuntas,
+              },
+            ]}
+          />
+        </section>
+
+        {/* FILTER */}
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-base font-bold text-slate-900">
+                Filter Data
+              </h2>
+
+              <p className="text-xs text-slate-500">
+                Cari LHP/LHA atau rekomendasi tertentu.
+              </p>
+            </div>
+
+            {hasFilter && (
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="text-sm font-semibold text-blue-700 hover:text-blue-900"
+              >
+                Reset Filter
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
+            <div className="lg:col-span-2">
+              <label className={labelClass}>Cari</label>
+
+              <input
+                type="text"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Cari LHA, temuan, rekomendasi..."
+                className={inputClass}
+              />
+            </div>
+
+            <div>
+              <label className={labelClass}>Sumber</label>
+
+              <select
+                value={source}
+                onChange={(event) => setSource(event.target.value)}
+                className={selectClass}
+              >
+                <option value="ALL">Semua Sumber</option>
+
+                <option value="BPK">BPK</option>
+
+                <option value="ITJEN">ITJEN</option>
+              </select>
+            </div>
+
+            <div>
+              <label className={labelClass}>Kategori</label>
+
+              <select
+                value={category}
+                onChange={(event) => setCategory(event.target.value)}
+                className={selectClass}
+              >
+                {CATEGORY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className={labelClass}>Status</label>
+
+              <select
+                value={status}
+                onChange={(event) => setStatus(event.target.value)}
+                className={selectClass}
+              >
+                {STATUS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div>
+              <label className={labelClass}>Status Saldo</label>
+
+              <select
+                value={saldo}
+                onChange={(event) => setSaldo(event.target.value)}
+                className={selectClass}
+              >
+                {SALDO_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-end">
+              <div className="w-full rounded-xl bg-slate-50 p-3">
+                <div className="text-xs text-slate-500">Hasil Filter</div>
+
+                <div className="mt-1 flex flex-wrap items-center gap-3">
+                  <span className="font-bold text-slate-900">
+                    {groupedFolders.length} LHP/LHA
+                  </span>
+
+                  <span className="text-slate-300">•</span>
+
+                  <span className="font-semibold text-slate-700">
+                    {filteredData.length} rekomendasi
+                  </span>
+
+                  <span className="text-slate-300">•</span>
+
+                  <span className="font-semibold text-blue-700">
+                    Capaian {formatPercent(filteredStats.capaian)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* TABLE FOLDER */}
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-col gap-3 border-b border-slate-200 p-5 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">
+                Folder LHP / LHA
+              </h2>
+
+              <p className="mt-1 text-sm text-slate-500">
+                Setiap nomor LHP/LHA ditampilkan sebagai satu folder yang berisi
+                beberapa rekomendasi.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => loadData(true)}
+              disabled={refreshing}
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {refreshing ? "Memuat..." : "↻ Refresh"}
+            </button>
+          </div>
+
+          {loading ? (
+            <LoadingState />
+          ) : groupedFolders.length === 0 ? (
+            <EmptyState
+              hasFilter={hasFilter}
+              onReset={resetFilters}
+              onAdd={openAddForm}
+            />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[900px]">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                    <th className="px-5 py-4 font-semibold">No</th>
+
+                    <th className="px-5 py-4 font-semibold">Sumber</th>
+
+                    <th className="px-5 py-4 font-semibold">LHA / LHP</th>
+
+                    <th className="px-5 py-4 font-semibold">Tanggal</th>
+
+                    <th className="px-5 py-4 text-center font-semibold">
+                      Jumlah Rek.
+                    </th>
+
+                    <th className="px-5 py-4 font-semibold">Capaian</th>
+
+                    <th className="px-5 py-4 text-right font-semibold">Aksi</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {groupedFolders.map((folder, index) => (
+                    <tr
+                      key={`${folder.source}-${folder.lha_number}`}
+                      onClick={() => openFolder(folder)}
+                      className="cursor-pointer border-b border-slate-100 transition hover:bg-blue-50/50"
+                    >
+                      <td className="px-5 py-4 text-sm font-semibold text-slate-500">
+                        {index + 1}
+                      </td>
+
+                      <td className="px-5 py-4">
+                        <span
+                          className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold ${getSourceClass(
+                            folder.source
+                          )}`}
+                        >
+                          {folder.source}
+                        </span>
+                      </td>
+
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-lg">
+                            📁
+                          </div>
+
+                          <div>
+                            <div className="font-bold text-slate-900">
+                              {folder.lha_number}
+                            </div>
+
+                            <div className="mt-1 text-xs text-slate-500">
+                              {folder.category || "Tanpa kategori"}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="px-5 py-4 text-sm text-slate-600">
+                        {formatDate(folder.lha_date)}
+                      </td>
+
+                      <td className="px-5 py-4 text-center">
+                        <span className="inline-flex min-w-[70px] items-center justify-center rounded-full bg-blue-50 px-3 py-2 text-sm font-bold text-blue-700">
+                          {folder.items.length} Rek.
+                        </span>
+                      </td>
+
+                      <td className="px-5 py-4">
+                        <div className="min-w-[140px]">
+                          <div className="mb-2 flex items-center justify-between">
+                            <span className="text-xs font-semibold text-slate-500">
+                              Capaian
+                            </span>
+
+                            <span className="text-sm font-bold text-slate-900">
+                              {formatPercent(folder.capaian)}
+                            </span>
+                          </div>
+
+                          <ProgressBar value={folder.capaian} />
+                        </div>
+                      </td>
+
+                      <td className="px-5 py-4 text-right">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openFolder(folder);
+                          }}
+                          className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white transition hover:bg-blue-800"
+                        >
+                          Buka Folder
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="border-t border-slate-200 bg-slate-50 px-5 py-4">
+            <div className="flex flex-col gap-2 text-sm md:flex-row md:items-center md:justify-between">
+              <span className="text-slate-500">
+                Menampilkan{" "}
+                <strong className="text-slate-900">
+                  {groupedFolders.length}
+                </strong>{" "}
+                folder LHP/LHA dengan{" "}
+                <strong className="text-slate-900">
+                  {filteredData.length}
+                </strong>{" "}
+                rekomendasi.
+              </span>
+
+              <span className="font-bold text-blue-700">
+                Capaian Filter: {formatPercent(filteredAutomaticCapaian)}
+              </span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      {/* =====================================================
+          FORM TAMBAH / EDIT
+      ===================================================== */}
+
+      {showForm && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4 backdrop-blur-sm">
+          <div className="flex min-h-full items-start justify-center py-8">
+            <div className="w-full max-w-5xl">
               <RecommendationForm
                 onSaved={() => {
                   closeForm();
@@ -1083,10 +1135,277 @@ export default function RekomendasiPage() {
         </div>
       )}
 
-      {/* ========================================================
-          IMPORT DOCUMENT MODAL
-      ======================================================== */}
+      {/* =====================================================
+          DETAIL FOLDER
+      ===================================================== */}
 
+      {detailFolder && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm">
+          <div className="absolute inset-y-0 right-0 w-full max-w-3xl overflow-y-auto bg-white shadow-2xl">
+            <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 p-5 backdrop-blur">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="mb-2 flex items-center gap-2">
+                    <span className="text-2xl">📁</span>
+
+                    <span className="text-xs font-bold uppercase tracking-wider text-blue-600">
+                      Detail Folder
+                    </span>
+                  </div>
+
+                  <h2 className="text-2xl font-bold text-slate-900">
+                    {detailFolder.lha_number}
+                  </h2>
+
+                  <p className="mt-1 text-sm text-slate-500">
+                    {detailFolder.source} • {detailFolder.category} •{" "}
+                    {formatDate(detailFolder.lha_date)}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={closeFolder}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-xl text-slate-500 hover:bg-slate-50"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-5 p-5">
+              {/* INFO FOLDER */}
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                <MiniStat label="Sumber" value={detailFolder.source} />
+
+                <MiniStat
+                  label="Jumlah Rek."
+                  value={`${detailFolder.items.length}`}
+                />
+
+                <MiniStat
+                  label="Tanggal"
+                  value={formatDate(detailFolder.lha_date)}
+                />
+
+                <MiniStat
+                  label="Capaian"
+                  value={formatPercent(detailFolder.capaian)}
+                />
+              </div>
+
+              {/* CAPAIAN FOLDER */}
+              <div className="rounded-2xl border border-blue-100 bg-blue-50 p-5">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-sm font-bold text-blue-900">
+                      Capaian LHP / LHA
+                    </div>
+
+                    <div className="mt-1 text-xs text-blue-700">
+                      Dihitung otomatis dari rata-rata capaian seluruh
+                      rekomendasi di folder ini.
+                    </div>
+                  </div>
+
+                  <div className="text-3xl font-black text-blue-700">
+                    {formatPercent(detailFolder.capaian)}
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <ProgressBar value={detailFolder.capaian} />
+                </div>
+              </div>
+
+              {/* DAFTAR REKOMENDASI */}
+              <div>
+                <div className="mb-4">
+                  <h3 className="text-lg font-bold text-slate-900">
+                    Daftar Rekomendasi
+                  </h3>
+
+                  <p className="text-sm text-slate-500">
+                    Nilai capaian rekomendasi ditampilkan sebagai bagian dari
+                    perhitungan sistem.
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  {detailFolder.items.map((item, index) => (
+                    <div
+                      key={item.id}
+                      className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+                    >
+                      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 text-sm font-black text-white">
+                            {item.recommendation_number || index + 1}
+                          </div>
+
+                          <div>
+                            <div className="font-bold text-slate-900">
+                              Rekomendasi #
+                              {item.recommendation_number || index + 1}
+                            </div>
+
+                            <div className="text-xs text-slate-500">
+                              ID Data: {item.id}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <span
+                            className={`rounded-full border px-3 py-1 text-xs font-semibold ${getStatusClass(
+                              item.follow_up_status
+                            )}`}
+                          >
+                            {getStatusLabel(item.follow_up_status)}
+                          </span>
+
+                          <span
+                            className={`rounded-full border px-3 py-1 text-xs font-semibold ${getSaldoClass(
+                              item.saldo_status
+                            )}`}
+                          >
+                            {getSaldoLabel(item.saldo_status)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <DetailBox title="Temuan" value={item.temuan} />
+
+                        <DetailBox
+                          title="Rekomendasi"
+                          value={item.recommendation}
+                        />
+
+                        <DetailBox
+                          title="Keterangan"
+                          value={item.description}
+                        />
+
+                        {/* CAPAIAN REKOMENDASI */}
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                          <div className="mb-3 flex items-center justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-bold text-slate-900">
+                                Capaian Rekomendasi
+                              </div>
+
+                              <div className="text-xs text-slate-500">
+                                Nilai yang digunakan dalam perhitungan sistem.
+                              </div>
+                            </div>
+
+                            <div className="text-xl font-black text-blue-700">
+                              {formatPercent(item.capaian)}
+                            </div>
+                          </div>
+
+                          <ProgressBar value={item.capaian} />
+                        </div>
+
+                        {/* AKSI */}
+                        <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4">
+                          <button
+                            type="button"
+                            onClick={() => editData(item)}
+                            className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                          >
+                            Edit Data
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => deleteData(item)}
+                            className="rounded-xl border border-red-200 px-4 py-2 text-xs font-bold text-red-600 hover:bg-red-50"
+                          >
+                            Hapus
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================
+          MODAL EDIT CAPAIAN KESELURUHAN
+      ===================================================== */}
+
+      {showCapaianModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="mb-5">
+              <div className="text-xs font-bold uppercase tracking-wider text-blue-600">
+                Edit Capaian
+              </div>
+
+              <h3 className="mt-1 text-xl font-bold text-slate-900">
+                Capaian Keseluruhan
+              </h3>
+
+              <p className="mt-1 text-sm text-slate-500">
+                Nilai ini berlaku untuk keseluruhan dashboard.
+              </p>
+            </div>
+
+            <label className="mb-2 block text-sm font-semibold text-slate-700">
+              Capaian (%)
+            </label>
+
+            <div className="relative">
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="1"
+                value={capaianInput}
+                onChange={(event) => setCapaianInput(event.target.value)}
+                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 pr-12 text-lg font-bold text-black outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-slate-400">
+                %
+              </span>
+            </div>
+
+            <div className="mt-3 rounded-xl bg-slate-50 p-3 text-xs text-slate-500">
+              Nilai dibatasi antara 0 sampai 100%. Nilai ini disimpan ke
+              database dan tidak mengubah capaian setiap rekomendasi.
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={closeCapaianEdit}
+                disabled={savingCapaian}
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Batal
+              </button>
+
+              <button
+                type="button"
+                onClick={saveCapaian}
+                disabled={savingCapaian}
+                className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {savingCapaian ? "Menyimpan..." : "Simpan Capaian"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* IMPORT */}
       {showImport && (
         <ImportDocumentModal
           onClose={() => setShowImport(false)}
@@ -1096,361 +1415,151 @@ export default function RekomendasiPage() {
           }}
         />
       )}
-
-      {/* ========================================================
-          DETAIL DRAWER
-      ======================================================== */}
-
-      {detail && (
-        <div className="fixed inset-0 z-[90] bg-[#071426]/30">
-          <button
-            onClick={() => setDetail(null)}
-            className="absolute inset-0 h-full w-full cursor-default"
-            aria-label="Tutup detail"
-          />
-
-          <aside className="absolute right-0 top-0 h-full w-full max-w-md overflow-y-auto bg-white shadow-2xl">
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-5 sm:px-6">
-              <div>
-                <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400">
-                  DETAIL REKOMENDASI
-                </p>
-
-                <h2 className="mt-1 max-w-[280px] truncate text-lg font-bold text-[#071426]">
-                  {detail.lha_number}
-                </h2>
-              </div>
-
-              <button
-                onClick={() => setDetail(null)}
-                className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-lg text-slate-500 transition hover:bg-slate-200"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="space-y-4 p-5 sm:p-6">
-              {/* SOURCE */}
-
-              <div className="rounded-2xl bg-[#071426] p-5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-slate-500">
-                      Sumber Pemeriksaan
-                    </p>
-
-                    <p className="mt-2 text-2xl font-bold text-white">
-                      {detail.source}
-                    </p>
-                  </div>
-
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#D4A72C]/10 text-sm font-bold text-[#D4A72C]">
-                    APF
-                  </div>
-                </div>
-              </div>
-
-              {/* DATE + COUNT */}
-
-              <div className="grid grid-cols-2 gap-3">
-                <DetailBox
-                  label="Tanggal"
-                  value={formatDate(detail.lha_date)}
-                />
-
-                <DetailBox
-                  label="Jumlah Rekomendasi"
-                  value={String(detail.recommendation_count)}
-                />
-              </div>
-
-              <DetailBox label="Nomor LHA / LHP" value={detail.lha_number} />
-
-              <DetailBox label="Kategori" value={detail.category} />
-
-              {/* STATUS */}
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl border border-slate-200 p-4">
-                  <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">
-                    Tindak Lanjut
-                  </p>
-
-                  <span
-                    className={`mt-2 inline-flex rounded-md px-2.5 py-1.5 text-[10px] font-bold ${statusClass(
-                      detail.follow_up_status
-                    )}`}
-                  >
-                    {statusText(detail.follow_up_status)}
-                  </span>
-                </div>
-
-                <div className="rounded-xl border border-slate-200 p-4">
-                  <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">
-                    Status Saldo
-                  </p>
-
-                  <span
-                    className={`mt-2 inline-flex rounded-md px-2.5 py-1.5 text-[10px] font-bold ${saldoClass(
-                      detail.saldo_status
-                    )}`}
-                  >
-                    {saldoText(detail.saldo_status)}
-                  </span>
-                </div>
-              </div>
-
-              {/* REKOMENDASI */}
-
-              <div className="rounded-xl border border-[#D4A72C]/30 bg-[#D4A72C]/5 p-4">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#D4A72C]/15 text-xs font-bold text-[#A77D16]">
-                    !
-                  </div>
-
-                  <p className="text-[9px] font-bold uppercase tracking-wide text-[#A77D16]">
-                    Rekomendasi / Yang Harus Dilakukan
-                  </p>
-                </div>
-
-                <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
-                  {detail.recommendation ||
-                    "Belum ada data rekomendasi yang tercatat."}
-                </p>
-              </div>
-
-              {/* DESCRIPTION */}
-
-              <div className="rounded-xl border border-slate-200 p-4">
-                <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">
-                  Keterangan
-                </p>
-
-                <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-600">
-                  {detail.description || "Tidak ada keterangan."}
-                </p>
-              </div>
-
-              {/* ACTION */}
-
-              <div className="flex gap-2 pt-2">
-                <button
-                  onClick={() => editData(detail)}
-                  className="flex-1 rounded-xl bg-[#071426] py-3 text-sm font-semibold text-white transition hover:bg-[#10294a]"
-                >
-                  Edit Data
-                </button>
-
-                <button
-                  onClick={() => deleteData(detail.id)}
-                  className="rounded-xl border border-red-200 px-5 py-3 text-sm font-semibold text-red-600 transition hover:bg-red-50"
-                >
-                  Hapus
-                </button>
-              </div>
-            </div>
-          </aside>
-        </div>
-      )}
-    </>
+    </main>
   );
 }
 
-/* ============================================================
+/* =========================================================
    COMPONENTS
-============================================================ */
+========================================================= */
+
+const inputClass =
+  "w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
+
+const selectClass =
+  "w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
+
+const labelClass =
+  "mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500";
 
 function KpiCard({
-  label,
+  title,
   value,
   description,
   icon,
-  variant = "default",
-  progress,
 }: {
-  label: string;
-  value: string | number;
+  title: string;
+  value: ReactNode;
   description: string;
   icon: string;
-  variant?: "default" | "green" | "amber" | "gold";
-  progress?: number;
 }) {
-  const variants = {
-    default: {
-      border: "border-slate-200",
-      bg: "bg-slate-50",
-      icon: "text-[#071426]",
-      value: "text-[#071426]",
-    },
-
-    green: {
-      border: "border-emerald-100",
-      bg: "bg-emerald-50",
-      icon: "text-emerald-600",
-      value: "text-emerald-700",
-    },
-
-    amber: {
-      border: "border-amber-100",
-      bg: "bg-amber-50",
-      icon: "text-amber-600",
-      value: "text-amber-600",
-    },
-
-    gold: {
-      border: "border-[#D4A72C]/25",
-      bg: "bg-[#D4A72C]/10",
-      icon: "text-[#A77D16]",
-      value: "text-[#071426]",
-    },
-  };
-
-  const v = variants[variant];
-
   return (
-    <div
-      className={`relative overflow-hidden rounded-2xl border ${v.border} bg-white p-5 shadow-sm`}
-    >
-      <div
-        className={`absolute right-0 top-0 h-20 w-20 rounded-bl-full ${v.bg}`}
-      />
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            {title}
+          </div>
 
-      <div className="relative">
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
-            {label}
-          </span>
-
-          <span
-            className={`flex h-8 w-8 items-center justify-center rounded-lg ${v.bg} text-xs font-bold ${v.icon}`}
-          >
-            {icon}
-          </span>
+          <div className="mt-2 text-3xl font-black text-slate-900">{value}</div>
         </div>
 
-        <p className={`mt-4 text-3xl font-bold tracking-tight ${v.value}`}>
-          {value}
-        </p>
+        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-xl">
+          {icon}
+        </div>
+      </div>
 
-        <p className="mt-1 text-xs text-slate-400">{description}</p>
+      <div className="mt-3 text-xs text-slate-500">{description}</div>
+    </div>
+  );
+}
 
-        {typeof progress === "number" && (
-          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100">
-            <div
-              className="h-full rounded-full bg-[#D4A72C] transition-all duration-500"
-              style={{
-                width: `${Math.min(Math.max(progress, 0), 100)}%`,
-              }}
-            />
+function SummaryPanel({
+  title,
+  icon,
+  total,
+  items,
+}: {
+  title: string;
+  icon: string;
+  total: number;
+  items: {
+    label: string;
+    value: number;
+  }[];
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="mb-5 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-lg">
+            {icon}
           </div>
-        )}
+
+          <div>
+            <h3 className="font-bold text-slate-900">{title}</h3>
+
+            <p className="text-xs text-slate-500">Total {total} rekomendasi</p>
+          </div>
+        </div>
+
+        <div className="text-2xl font-black text-slate-900">{total}</div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        {items.map((item) => (
+          <div key={item.label} className="rounded-xl bg-slate-50 p-3">
+            <div className="text-xs text-slate-500">{item.label}</div>
+
+            <div className="mt-1 text-xl font-black text-slate-900">
+              {item.value}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-function MiniStat({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: number;
-  color: "green" | "red" | "amber" | "dark";
-}) {
-  const classes = {
-    green: "text-emerald-600",
-    red: "text-red-600",
-    amber: "text-amber-600",
-    dark: "text-[#071426]",
-  };
+function ProgressBar({ value }: { value: number }) {
+  const safeValue = Math.max(0, Math.min(100, Number(value) || 0));
 
   return (
-    <div className="p-3 text-center">
-      <p className="text-[10px] text-slate-400">{label}</p>
-
-      <p className={`mt-1 text-lg font-bold ${classes[color]}`}>{value}</p>
+    <div className="h-2.5 overflow-hidden rounded-full bg-slate-200">
+      <div
+        className="h-full rounded-full bg-blue-600 transition-all duration-500"
+        style={{
+          width: `${safeValue}%`,
+        }}
+      />
     </div>
   );
 }
 
-function FilterButton({
-  children,
-  active,
-  onClick,
-}: {
-  children: React.ReactNode;
-  active: boolean;
-  onClick: () => void;
-}) {
+function MiniStat({ label, value }: { label: string; value: string }) {
   return (
-    <button
-      onClick={onClick}
-      className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${
-        active
-          ? "bg-[#071426] text-white"
-          : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <div className="text-xs text-slate-500">{label}</div>
 
-function ActiveFilter({ label }: { label: string }) {
-  return (
-    <span className="rounded-full bg-[#071426] px-2.5 py-1 text-[10px] font-medium text-white">
-      {label}
-    </span>
-  );
-}
-
-function FilterSummary({
-  label,
-  value,
-  valueClass = "text-[#071426]",
-}: {
-  label: string;
-  value: number;
-  valueClass?: string;
-}) {
-  return (
-    <div className="border-r border-slate-100 px-4 py-3 last:border-r-0">
-      <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">
-        {label}
-      </p>
-
-      <p className={`mt-1 text-lg font-bold ${valueClass}`}>{value}</p>
+      <div className="mt-1 font-bold text-slate-900">{value}</div>
     </div>
   );
 }
 
-function DetailBox({ label, value }: { label: string; value: string }) {
+function DetailBox({ title, value }: { title: string; value?: string | null }) {
   return (
-    <div className="rounded-xl border border-slate-200 p-4">
-      <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">
-        {label}
-      </p>
+    <div>
+      <div className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-400">
+        {title}
+      </div>
 
-      <p className="mt-2 whitespace-pre-wrap text-sm font-semibold leading-relaxed text-slate-700">
-        {value || "-"}
-      </p>
+      <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
+        {value?.trim() || "-"}
+      </div>
     </div>
   );
 }
 
 function LoadingState() {
   return (
-    <div className="flex h-80 flex-col items-center justify-center">
-      <div className="h-7 w-7 animate-spin rounded-full border-2 border-slate-200 border-t-[#D4A72C]" />
+    <div className="flex min-h-[300px] items-center justify-center">
+      <div className="text-center">
+        <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600" />
 
-      <p className="mt-4 text-sm font-medium text-slate-500">
-        Memuat data rekomendasi...
-      </p>
-
-      <p className="mt-1 text-xs text-slate-400">
-        Mengambil data terbaru dari sistem APF
-      </p>
+        <p className="mt-4 text-sm font-semibold text-slate-600">
+          Memuat data...
+        </p>
+      </div>
     </div>
   );
 }
@@ -1465,37 +1574,41 @@ function EmptyState({
   onAdd: () => void;
 }) {
   return (
-    <div className="flex h-80 flex-col items-center justify-center px-5 text-center">
-      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-xl text-slate-400">
-        —
-      </div>
+    <div className="flex min-h-[320px] items-center justify-center p-8">
+      <div className="max-w-md text-center">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-3xl">
+          📁
+        </div>
 
-      <p className="mt-4 text-sm font-semibold text-slate-600">
-        {hasFilter ? "Data tidak ditemukan" : "Belum ada rekomendasi"}
-      </p>
+        <h3 className="mt-5 text-lg font-bold text-slate-900">
+          Belum ada folder LHP/LHA
+        </h3>
 
-      <p className="mt-1 max-w-sm text-xs text-slate-400">
-        {hasFilter
-          ? "Tidak ada rekomendasi yang sesuai dengan filter yang dipilih."
-          : "Belum terdapat data rekomendasi yang tersimpan pada sistem."}
-      </p>
+        <p className="mt-2 text-sm leading-6 text-slate-500">
+          {hasFilter
+            ? "Tidak ada data yang sesuai dengan filter yang dipilih."
+            : "Tambahkan LHP/LHA baru untuk mulai memasukkan rekomendasi."}
+        </p>
 
-      <div className="mt-4 flex gap-2">
-        {hasFilter && (
+        <div className="mt-5 flex justify-center gap-3">
+          {hasFilter && (
+            <button
+              type="button"
+              onClick={onReset}
+              className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Reset Filter
+            </button>
+          )}
+
           <button
-            onClick={onReset}
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+            type="button"
+            onClick={onAdd}
+            className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-800"
           >
-            Reset Filter
+            + Tambah LHP / LHA
           </button>
-        )}
-
-        <button
-          onClick={onAdd}
-          className="rounded-lg bg-[#071426] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[#10294a]"
-        >
-          + Tambah Rekomendasi
-        </button>
+        </div>
       </div>
     </div>
   );

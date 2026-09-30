@@ -2,32 +2,101 @@ import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 
 /**
- * GET
- * Mengambil seluruh data rekomendasi
+ * Menghitung capaian otomatis berdasarkan
+ * status tindak lanjut.
+ *
+ * BELUM_TL    = 0%
+ * SUDAH_TL    = 50%
+ * SUDAH_TUNTAS = 100%
  */
-export async function GET() {
+function calculateCapaian(followUpStatus: string): number {
+  switch (followUpStatus) {
+    case "BELUM_TL":
+      return 0;
+
+    case "SUDAH_TL":
+      return 50;
+
+    case "SUDAH_TUNTAS":
+      return 100;
+
+    default:
+      return 0;
+  }
+}
+
+/**
+ * GET
+ *
+ * Mengambil seluruh rekomendasi.
+ *
+ * Setiap row = 1 rekomendasi.
+ */
+export async function GET(request: NextRequest) {
   try {
-    const result = await pool.query(`
+    const { searchParams } = new URL(request.url);
+
+    const lhaNumber = searchParams.get("lhaNumber");
+    const source = searchParams.get("source");
+
+    let query = `
       SELECT
         id,
         source,
         category,
         lha_number,
         lha_date,
+        recommendation_number,
         recommendation_count,
-        follow_up_status,
-        saldo_status,
+        temuan,
         recommendation,
         description,
+        follow_up_status,
+        saldo_status,
+        capaian,
         created_at,
         updated_at
       FROM recommendations
-      ORDER BY created_at DESC
-    `);
+    `;
+
+    const values: string[] = [];
+    const conditions: string[] = [];
+
+    if (lhaNumber) {
+      values.push(lhaNumber);
+      conditions.push(`lha_number = $${values.length}`);
+    }
+
+    if (source) {
+      values.push(source);
+      conditions.push(`source = $${values.length}`);
+    }
+
+    if (conditions.length > 0) {
+      query += ` WHERE ${conditions.join(" AND ")}`;
+    }
+
+    query += `
+      ORDER BY
+        lha_number ASC,
+        recommendation_number ASC NULLS LAST,
+        created_at ASC
+    `;
+
+    const result = await pool.query(query, values);
+
+    /**
+     * Capaian dihitung otomatis berdasarkan
+     * follow_up_status.
+     */
+    const data = result.rows.map((row) => ({
+      ...row,
+      capaian: calculateCapaian(row.follow_up_status),
+    }));
 
     return NextResponse.json({
       ok: true,
-      data: result.rows,
+      data,
     });
   } catch (error) {
     console.error("GET RECOMMENDATIONS ERROR:", error);
@@ -35,7 +104,10 @@ export async function GET() {
     return NextResponse.json(
       {
         ok: false,
-        message: "Gagal mengambil data rekomendasi.",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Gagal mengambil data rekomendasi.",
       },
       { status: 500 }
     );
@@ -44,84 +116,225 @@ export async function GET() {
 
 /**
  * POST
- * Menambahkan rekomendasi baru
+ *
+ * Menambahkan satu atau beberapa rekomendasi
+ * dalam satu LHA/LHP.
+ *
+ * Capaian TIDAK lagi dikirim manual.
+ * Capaian otomatis dihitung dari status tindak lanjut.
  */
 export async function POST(request: NextRequest) {
+  const client = await pool.connect();
+
   try {
     const body = await request.json();
 
-    const {
-      source,
-      category,
-      lhaNumber,
-      lhaDate,
-      recommendationCount,
-      followUpStatus,
-      saldoStatus,
-      recommendation,
-      description,
-    } = body;
+    const { source, category, lhaNumber, lhaDate, recommendations } = body;
 
-    if (
-      !source ||
-      !category ||
-      !lhaNumber ||
-      !lhaDate ||
-      !followUpStatus ||
-      !saldoStatus
-    ) {
+    if (!source || !category || !lhaNumber || !lhaDate) {
       return NextResponse.json(
         {
           ok: false,
-          message:
-            "Source, kategori, nomor LHA, tanggal LHA, status tindak lanjut, dan status saldo wajib diisi.",
+          message: "Source, kategori, nomor LHA, dan tanggal LHA wajib diisi.",
         },
         { status: 400 }
       );
     }
 
-    const count =
-      Number(recommendationCount) > 0 ? Number(recommendationCount) : 1;
+    let recommendationList = recommendations;
 
-    const result = await pool.query(
+    /**
+     * Mendukung format lama.
+     */
+    if (!Array.isArray(recommendationList)) {
+      recommendationList = [
+        {
+          temuan: body.temuan || "",
+          recommendation: body.recommendation || "",
+          followUpStatus: body.followUpStatus,
+          saldoStatus: body.saldoStatus,
+          description: body.description || "",
+        },
+      ];
+    }
+
+    if (recommendationList.length === 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: "Minimal harus ada satu rekomendasi.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const allowedFollowUp = ["BELUM_TL", "SUDAH_TL", "SUDAH_TUNTAS"];
+
+    const allowedSaldo = ["MASUK_SALDO", "BELUM_SALDO", "TIDAK_RELEVAN"];
+
+    /**
+     * Validasi setiap rekomendasi.
+     */
+    for (let i = 0; i < recommendationList.length; i++) {
+      const item = recommendationList[i];
+
+      if (!item.followUpStatus) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message: `Status tindak lanjut rekomendasi ke-${
+              i + 1
+            } wajib diisi.`,
+          },
+          { status: 400 }
+        );
+      }
+
+      if (!item.saldoStatus) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message: `Status saldo rekomendasi ke-${i + 1} wajib diisi.`,
+          },
+          { status: 400 }
+        );
+      }
+
+      if (!allowedFollowUp.includes(item.followUpStatus)) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message: `Status tindak lanjut rekomendasi ke-${
+              i + 1
+            } tidak valid.`,
+          },
+          { status: 400 }
+        );
+      }
+
+      if (!allowedSaldo.includes(item.saldoStatus)) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message: `Status saldo rekomendasi ke-${i + 1} tidak valid.`,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    await client.query("BEGIN");
+
+    /**
+     * Cari nomor rekomendasi terakhir
+     * pada LHA/LHP yang sama.
+     */
+    const lastNumberResult = await client.query(
       `
-      INSERT INTO recommendations (
-        source,
-        category,
-        lha_number,
-        lha_date,
-        recommendation_count,
-        follow_up_status,
-        saldo_status,
-        recommendation,
-        description
-      )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-      RETURNING *
+      SELECT
+        COALESCE(MAX(recommendation_number), 0)::int
+        AS last_number
+      FROM recommendations
+      WHERE lha_number = $1
       `,
-      [
-        source,
-        category,
-        lhaNumber,
-        lhaDate,
-        count,
-        followUpStatus,
-        saldoStatus,
-        recommendation || "",
-        description || "",
-      ]
+      [lhaNumber]
     );
+
+    let nextNumber = Number(lastNumberResult.rows[0]?.last_number || 0) + 1;
+
+    const insertedRows = [];
+
+    /**
+     * Masukkan seluruh rekomendasi.
+     */
+    for (const item of recommendationList) {
+      /**
+       * Capaian otomatis berdasarkan status.
+       */
+      const capaian = calculateCapaian(item.followUpStatus);
+
+      const result = await client.query(
+        `
+        INSERT INTO recommendations (
+          source,
+          category,
+          lha_number,
+          lha_date,
+          recommendation_number,
+          recommendation_count,
+          temuan,
+          recommendation,
+          description,
+          follow_up_status,
+          saldo_status,
+          capaian
+        )
+        VALUES (
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          $6,
+          $7,
+          $8,
+          $9,
+          $10,
+          $11,
+          $12
+        )
+        RETURNING *
+        `,
+        [
+          source,
+          category,
+          lhaNumber,
+          lhaDate,
+          nextNumber,
+          recommendationList.length,
+          item.temuan || "",
+          item.recommendation || "",
+          item.description || "",
+          item.followUpStatus,
+          item.saldoStatus,
+          capaian,
+        ]
+      );
+
+      insertedRows.push(result.rows[0]);
+
+      nextNumber++;
+    }
+
+    /**
+     * Pastikan jumlah rekomendasi
+     * pada LHA/LHP sama.
+     */
+    await client.query(
+      `
+      UPDATE recommendations
+      SET
+        recommendation_count = $1,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE lha_number = $2
+      `,
+      [recommendationList.length, lhaNumber]
+    );
+
+    await client.query("COMMIT");
 
     return NextResponse.json(
       {
         ok: true,
-        message: "Rekomendasi berhasil ditambahkan.",
-        data: result.rows[0],
+        message: `${insertedRows.length} rekomendasi berhasil ditambahkan.`,
+        data: insertedRows,
       },
       { status: 201 }
     );
   } catch (error) {
-    console.error("POST RECOMMENDATION ERROR:", error);
+    await client.query("ROLLBACK");
+
+    console.error("POST RECOMMENDATIONS ERROR:", error);
 
     return NextResponse.json(
       {
@@ -133,12 +346,18 @@ export async function POST(request: NextRequest) {
       },
       { status: 500 }
     );
+  } finally {
+    client.release();
   }
 }
 
 /**
  * PUT
- * Mengubah rekomendasi
+ *
+ * Mengubah data rekomendasi.
+ *
+ * Capaian otomatis dihitung ulang
+ * berdasarkan follow_up_status.
  */
 export async function PUT(request: NextRequest) {
   try {
@@ -150,11 +369,12 @@ export async function PUT(request: NextRequest) {
       category,
       lhaNumber,
       lhaDate,
-      recommendationCount,
-      followUpStatus,
-      saldoStatus,
+      recommendationNumber,
+      temuan,
       recommendation,
       description,
+      followUpStatus,
+      saldoStatus,
     } = body;
 
     if (!id) {
@@ -185,8 +405,34 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const count =
-      Number(recommendationCount) > 0 ? Number(recommendationCount) : 1;
+    const allowedFollowUp = ["BELUM_TL", "SUDAH_TL", "SUDAH_TUNTAS"];
+
+    const allowedSaldo = ["MASUK_SALDO", "BELUM_SALDO", "TIDAK_RELEVAN"];
+
+    if (!allowedFollowUp.includes(followUpStatus)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: "Status tindak lanjut tidak valid.",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!allowedSaldo.includes(saldoStatus)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: "Status saldo tidak valid.",
+        },
+        { status: 400 }
+      );
+    }
+
+    /**
+     * Capaian otomatis.
+     */
+    const capaian = calculateCapaian(followUpStatus);
 
     const result = await pool.query(
       `
@@ -196,13 +442,16 @@ export async function PUT(request: NextRequest) {
         category = $2,
         lha_number = $3,
         lha_date = $4,
-        recommendation_count = $5,
-        follow_up_status = $6,
-        saldo_status = $7,
-        recommendation = $8,
-        description = $9,
+        recommendation_number =
+          COALESCE($5, recommendation_number),
+        temuan = $6,
+        recommendation = $7,
+        description = $8,
+        follow_up_status = $9,
+        saldo_status = $10,
+        capaian = $11,
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = $10
+      WHERE id = $12
       RETURNING *
       `,
       [
@@ -210,11 +459,13 @@ export async function PUT(request: NextRequest) {
         category,
         lhaNumber,
         lhaDate,
-        count,
-        followUpStatus,
-        saldoStatus,
+        recommendationNumber || null,
+        temuan || "",
         recommendation || "",
         description || "",
+        followUpStatus,
+        saldoStatus,
+        capaian,
         id,
       ]
     );
@@ -235,7 +486,7 @@ export async function PUT(request: NextRequest) {
       data: result.rows[0],
     });
   } catch (error) {
-    console.error("PUT RECOMMENDATIONS ERROR:", error);
+    console.error("PUT RECOMMENDATION ERROR:", error);
 
     return NextResponse.json(
       {
@@ -252,11 +503,13 @@ export async function PUT(request: NextRequest) {
 
 /**
  * DELETE
- * Menghapus rekomendasi berdasarkan ID
+ *
+ * Menghapus satu rekomendasi.
  */
 export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
+
     const id = searchParams.get("id");
 
     if (!id) {
@@ -287,6 +540,28 @@ export async function DELETE(request: NextRequest) {
         { status: 404 }
       );
     }
+
+    const deletedLhaNumber = result.rows[0].lha_number;
+
+    /**
+     * Hitung ulang jumlah rekomendasi
+     * pada LHA/LHP terkait.
+     */
+    await pool.query(
+      `
+      UPDATE recommendations
+      SET
+        recommendation_count = (
+          SELECT COUNT(*)
+          FROM recommendations r2
+          WHERE r2.lha_number =
+            recommendations.lha_number
+        ),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE lha_number = $1
+      `,
+      [deletedLhaNumber]
+    );
 
     return NextResponse.json({
       ok: true,

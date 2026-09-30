@@ -19,7 +19,6 @@ export default function LaporanPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // FILTER
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [sourceFilter, setSourceFilter] = useState("ALL");
@@ -28,6 +27,10 @@ export default function LaporanPage() {
 
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Recommendation | null>(null);
+
+  // =========================================================
+  // LOAD DATA
+  // =========================================================
 
   async function loadData() {
     try {
@@ -57,9 +60,9 @@ export default function LaporanPage() {
     loadData();
   }, []);
 
-  // =========================
-  // DATA FILTER
-  // =========================
+  // =========================================================
+  // FILTER DATA
+  // =========================================================
 
   const filteredData = useMemo(() => {
     const keyword = search.toLowerCase().trim();
@@ -74,8 +77,6 @@ export default function LaporanPage() {
       const matchesSource =
         sourceFilter === "ALL" || item.source === sourceFilter;
 
-      // Kompatibilitas data lama:
-      // BELUM_TUNTAS dianggap SUDAH_TL
       const normalizedStatus =
         item.follow_up_status === "BELUM_TUNTAS"
           ? "SUDAH_TL"
@@ -112,9 +113,9 @@ export default function LaporanPage() {
     search,
   ]);
 
-  // =========================
+  // =========================================================
   // REKAP
-  // =========================
+  // =========================================================
 
   const total = useMemo(
     () =>
@@ -195,9 +196,9 @@ export default function LaporanPage() {
 
   const persentaseBelumTl = total > 0 ? Math.round((belumTl / total) * 100) : 0;
 
-  // =========================
+  // =========================================================
   // HELPER
-  // =========================
+  // =========================================================
 
   const formatDate = (date: string) => {
     if (!date) return "-";
@@ -262,9 +263,9 @@ export default function LaporanPage() {
     }
   };
 
-  // =========================
+  // =========================================================
   // EXPORT EXCEL
-  // =========================
+  // =========================================================
 
   const exportExcel = () => {
     const params = new URLSearchParams();
@@ -296,6 +297,10 @@ export default function LaporanPage() {
       : "/api/recommendations/export";
   };
 
+  // =========================================================
+  // RESET FILTER
+  // =========================================================
+
   const resetFilter = () => {
     setStartDate("");
     setEndDate("");
@@ -305,67 +310,91 @@ export default function LaporanPage() {
     setSearch("");
   };
 
-  return (
-    <main className="min-h-screen bg-[#F4F7FB] px-6 py-8 lg:px-8">
-      {/* ================= HEADER ================= */}
-      <section className="mb-8">
-        <div className="flex flex-col justify-between gap-5 xl:flex-row xl:items-end">
-          <div>
-            <div className="mb-2 flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-[#D4A72C]" />
+  // =========================================================
+  // UI
+  // =========================================================
 
-              <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">
-                Data Management
-              </span>
+  return (
+    <main className="min-h-screen bg-[#F4F7FB] px-6 py-5 lg:px-8">
+      {/* =====================================================
+          HEADER
+      ===================================================== */}
+
+      <section className="mb-5">
+        <div className="relative overflow-hidden rounded-2xl bg-[#071B41] px-5 py-6 text-white shadow-sm sm:px-7">
+          <div className="absolute right-0 top-0 h-40 w-40 rounded-full bg-white/5 blur-3xl" />
+
+          <div className="relative flex flex-col justify-between gap-5 xl:flex-row xl:items-center">
+            <div>
+              <div className="mb-2 inline-flex items-center rounded-full border border-white/20 bg-white/10 px-3 py-1">
+                <span className="text-[10px] font-semibold text-white">
+                  Monitoring APP
+                </span>
+              </div>
+
+              <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+                Laporan APF
+              </h1>
+
+              <p className="mt-2 max-w-2xl text-xs leading-5 text-blue-100 sm:text-sm">
+                Rekapitulasi data rekomendasi hasil pemeriksaan BPK dan Itjen
+                pada KPUBC Tipe C Soekarno-Hatta.
+              </p>
             </div>
 
-            <h1 className="text-3xl font-bold tracking-tight text-[#071426]">
-              Laporan APF
-            </h1>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <button
+                onClick={exportExcel}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/30 bg-white/10 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-white/20"
+              >
+                <span className="text-sm">↓</span>
+                Export Excel
+              </button>
 
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-              Rekapitulasi data rekomendasi hasil pemeriksaan BPK dan Itjen pada
-              KPUBC Tipe C Soekarno-Hatta.
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <button
-              onClick={exportExcel}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#071426] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#102746]"
-            >
-              <span>↓</span>
-              Export Excel
-            </button>
-
-            <button
-              onClick={loadData}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-[#D4A72C] hover:text-[#9B7518]"
-            >
-              <span>↻</span>
-              Refresh Data
-            </button>
+              <button
+                onClick={loadData}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-xs font-semibold text-[#071B41] transition hover:bg-slate-100"
+              >
+                <span className="text-sm">↻</span>
+                Refresh Data
+              </button>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* ================= ERROR ================= */}
+      {/* =====================================================
+          ERROR
+      ===================================================== */}
+
       {error && (
-        <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
+        <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">
           {error}
         </div>
       )}
 
-      {/* ================= FILTER ================= */}
-      <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      {/* =====================================================
+          FILTER
+      ===================================================== */}
+
+      <section className="mb-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-5 flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
           <div>
-            <h2 className="font-bold text-[#071426]">Filter Laporan</h2>
+            <div className="flex items-center gap-2">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EEF3FA] text-sm">
+                🔎
+              </span>
 
-            <p className="mt-1 text-xs text-slate-400">
-              Gunakan filter untuk menampilkan data tertentu dan membuat laporan
-              yang lebih spesifik.
-            </p>
+              <div>
+                <h2 className="text-sm font-bold text-[#071426]">
+                  Filter Laporan
+                </h2>
+
+                <p className="mt-0.5 text-[11px] text-slate-400">
+                  Gunakan filter untuk menampilkan data tertentu.
+                </p>
+              </div>
+            </div>
           </div>
 
           <button
@@ -378,8 +407,9 @@ export default function LaporanPage() {
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           {/* TANGGAL MULAI */}
+
           <div>
-            <label className="mb-2 block text-xs font-semibold text-slate-700">
+            <label className="mb-2 block text-[11px] font-semibold text-slate-600">
               Tanggal Mulai
             </label>
 
@@ -388,13 +418,14 @@ export default function LaporanPage() {
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
               style={{ colorScheme: "light" }}
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-black outline-none transition focus:border-[#D4A72C] focus:bg-white focus:text-black"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs font-medium text-black outline-none transition focus:border-[#D4A72C] focus:bg-white"
             />
           </div>
 
           {/* TANGGAL AKHIR */}
+
           <div>
-            <label className="mb-2 block text-xs font-semibold text-slate-700">
+            <label className="mb-2 block text-[11px] font-semibold text-slate-600">
               Tanggal Akhir
             </label>
 
@@ -403,20 +434,21 @@ export default function LaporanPage() {
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
               style={{ colorScheme: "light" }}
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-black outline-none transition focus:border-[#D4A72C] focus:bg-white focus:text-black"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs font-medium text-black outline-none transition focus:border-[#D4A72C] focus:bg-white"
             />
           </div>
 
           {/* SUMBER */}
+
           <div>
-            <label className="mb-2 block text-xs font-semibold text-slate-700">
+            <label className="mb-2 block text-[11px] font-semibold text-slate-600">
               Sumber APF
             </label>
 
             <select
               value={sourceFilter}
               onChange={(e) => setSourceFilter(e.target.value)}
-              className="w-full cursor-pointer rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-black outline-none focus:border-[#D4A72C] focus:bg-white"
+              className="w-full cursor-pointer rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs font-medium text-black outline-none focus:border-[#D4A72C] focus:bg-white"
             >
               <option value="ALL">Semua Sumber</option>
               <option value="BPK">BPK</option>
@@ -425,15 +457,16 @@ export default function LaporanPage() {
           </div>
 
           {/* STATUS */}
+
           <div>
-            <label className="mb-2 block text-xs font-semibold text-slate-700">
+            <label className="mb-2 block text-[11px] font-semibold text-slate-600">
               Status Tindak Lanjut
             </label>
 
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full cursor-pointer rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-black outline-none focus:border-[#D4A72C] focus:bg-white"
+              className="w-full cursor-pointer rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs font-medium text-black outline-none focus:border-[#D4A72C] focus:bg-white"
             >
               <option value="ALL">Semua Status</option>
               <option value="BELUM_TL">Belum TL</option>
@@ -443,15 +476,16 @@ export default function LaporanPage() {
           </div>
 
           {/* KATEGORI */}
+
           <div>
-            <label className="mb-2 block text-xs font-semibold text-slate-700">
+            <label className="mb-2 block text-[11px] font-semibold text-slate-600">
               Kategori
             </label>
 
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
-              className="w-full cursor-pointer rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-black outline-none focus:border-[#D4A72C] focus:bg-white"
+              className="w-full cursor-pointer rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs font-medium text-black outline-none focus:border-[#D4A72C] focus:bg-white"
             >
               <option value="ALL">Semua Kategori</option>
               <option value="Laporan Keuangan">Laporan Keuangan</option>
@@ -464,107 +498,189 @@ export default function LaporanPage() {
         </div>
       </section>
 
-      {/* ================= KPI ================= */}
-      <section className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
-            Total
-          </p>
+      {/* =====================================================
+          KPI
+      ===================================================== */}
 
-          <p className="mt-3 text-3xl font-bold text-[#071426]">{total}</p>
+      <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        {/* TOTAL */}
 
-          <p className="mt-1 text-xs text-slate-400">Total rekomendasi</p>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Total
+              </p>
+
+              <p className="mt-2 text-2xl font-bold text-[#071426]">{total}</p>
+
+              <p className="mt-1 text-[10px] text-slate-400">
+                Total rekomendasi
+              </p>
+            </div>
+
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#EEF3FA] text-sm">
+              📋
+            </span>
+          </div>
         </div>
 
-        <div className="rounded-2xl border border-green-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
-            Masuk Saldo
-          </p>
+        {/* MASUK SALDO */}
 
-          <p className="mt-3 text-3xl font-bold text-green-600">{masukSaldo}</p>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Masuk Saldo
+              </p>
 
-          <p className="mt-1 text-xs text-slate-400">
-            {persentaseSaldo}% dari total
-          </p>
+              <p className="mt-2 text-2xl font-bold text-green-600">
+                {masukSaldo}
+              </p>
+
+              <p className="mt-1 text-[10px] text-slate-400">
+                {persentaseSaldo}% dari total
+              </p>
+            </div>
+
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-green-50 text-sm">
+              💰
+            </span>
+          </div>
         </div>
 
-        <div className="rounded-2xl border border-red-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
-            Belum Saldo
-          </p>
+        {/* BELUM SALDO */}
 
-          <p className="mt-3 text-3xl font-bold text-red-600">{belumSaldo}</p>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Belum Saldo
+              </p>
 
-          <p className="mt-1 text-xs text-slate-400">Belum masuk saldo</p>
+              <p className="mt-2 text-2xl font-bold text-red-600">
+                {belumSaldo}
+              </p>
+
+              <p className="mt-1 text-[10px] text-slate-400">
+                Belum masuk saldo
+              </p>
+            </div>
+
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-50 text-sm">
+              ⚠️
+            </span>
+          </div>
         </div>
 
-        <div className="rounded-2xl border border-red-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
-            Belum TL
-          </p>
+        {/* BELUM TL */}
 
-          <p className="mt-3 text-3xl font-bold text-red-600">{belumTl}</p>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Belum TL
+              </p>
 
-          <p className="mt-1 text-xs text-slate-400">Belum ditindaklanjuti</p>
+              <p className="mt-2 text-2xl font-bold text-red-600">{belumTl}</p>
+
+              <p className="mt-1 text-[10px] text-slate-400">
+                Belum ditindaklanjuti
+              </p>
+            </div>
+
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-50 text-sm">
+              ⏳
+            </span>
+          </div>
         </div>
 
-        <div className="rounded-2xl border border-amber-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
-            Sudah TL
-          </p>
+        {/* SUDAH TL */}
 
-          <p className="mt-3 text-3xl font-bold text-amber-600">{sudahTl}</p>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Sudah TL
+              </p>
 
-          <p className="mt-1 text-xs text-slate-400">
-            {persentaseSudahTl}% dari total
-          </p>
+              <p className="mt-2 text-2xl font-bold text-amber-600">
+                {sudahTl}
+              </p>
+
+              <p className="mt-1 text-[10px] text-slate-400">
+                {persentaseSudahTl}% dari total
+              </p>
+            </div>
+
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-50 text-sm">
+              🔄
+            </span>
+          </div>
         </div>
 
-        <div className="rounded-2xl border border-green-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
-            Sudah Tuntas
-          </p>
+        {/* SUDAH TUNTAS */}
 
-          <p className="mt-3 text-3xl font-bold text-green-600">
-            {sudahTuntas}
-          </p>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Sudah Tuntas
+              </p>
 
-          <p className="mt-1 text-xs text-slate-400">
-            {persentaseTuntas}% dari total
-          </p>
+              <p className="mt-2 text-2xl font-bold text-green-600">
+                {sudahTuntas}
+              </p>
+
+              <p className="mt-1 text-[10px] text-slate-400">
+                {persentaseTuntas}% dari total
+              </p>
+            </div>
+
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-green-50 text-sm">
+              ✅
+            </span>
+          </div>
         </div>
       </section>
 
-      {/* ================= MONITORING ================= */}
-      <section className="mb-6 grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        {/* STATUS */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="mb-6">
-            <h2 className="font-bold text-[#071426]">Status Tindak Lanjut</h2>
+      {/* =====================================================
+          MONITORING
+      ===================================================== */}
 
-            <p className="mt-1 text-xs text-slate-400">
-              Distribusi status rekomendasi berdasarkan filter aktif
+      <section className="mb-5 grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+        {/* STATUS */}
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-5">
+            <h2 className="text-sm font-bold text-[#071426]">
+              Status Tindak Lanjut
+            </h2>
+
+            <p className="mt-1 text-[11px] text-slate-400">
+              Distribusi status rekomendasi berdasarkan filter aktif.
             </p>
           </div>
 
-          <div className="space-y-6">
-            {/* SUDAH TUNTAS */}
+          <div className="space-y-5">
+            {/* TUNTAS */}
+
             <div>
               <div className="mb-2 flex items-center justify-between">
-                <span className="flex items-center gap-2 text-sm font-medium text-slate-600">
-                  <span className="h-2.5 w-2.5 rounded-full bg-green-500" />
+                <span className="flex items-center gap-2 text-xs font-medium text-slate-600">
+                  <span className="h-2 w-2 rounded-full bg-green-500" />
                   Sudah Tuntas
                 </span>
 
-                <span className="text-sm font-bold text-slate-800">
-                  {sudahTuntas}{" "}
-                  <span className="font-normal text-slate-400">
+                <span className="text-xs font-bold text-slate-800">
+                  {sudahTuntas}
+                  <span className="ml-1 font-normal text-slate-400">
                     ({persentaseTuntas}%)
                   </span>
                 </span>
               </div>
 
-              <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+              <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
                 <div
                   className="h-full rounded-full bg-green-500 transition-all"
                   style={{
@@ -575,22 +691,23 @@ export default function LaporanPage() {
             </div>
 
             {/* SUDAH TL */}
+
             <div>
               <div className="mb-2 flex items-center justify-between">
-                <span className="flex items-center gap-2 text-sm font-medium text-slate-600">
-                  <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+                <span className="flex items-center gap-2 text-xs font-medium text-slate-600">
+                  <span className="h-2 w-2 rounded-full bg-amber-500" />
                   Sudah TL
                 </span>
 
-                <span className="text-sm font-bold text-slate-800">
-                  {sudahTl}{" "}
-                  <span className="font-normal text-slate-400">
+                <span className="text-xs font-bold text-slate-800">
+                  {sudahTl}
+                  <span className="ml-1 font-normal text-slate-400">
                     ({persentaseSudahTl}%)
                   </span>
                 </span>
               </div>
 
-              <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+              <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
                 <div
                   className="h-full rounded-full bg-amber-500 transition-all"
                   style={{
@@ -601,22 +718,23 @@ export default function LaporanPage() {
             </div>
 
             {/* BELUM TL */}
+
             <div>
               <div className="mb-2 flex items-center justify-between">
-                <span className="flex items-center gap-2 text-sm font-medium text-slate-600">
-                  <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
+                <span className="flex items-center gap-2 text-xs font-medium text-slate-600">
+                  <span className="h-2 w-2 rounded-full bg-red-500" />
                   Belum TL
                 </span>
 
-                <span className="text-sm font-bold text-slate-800">
-                  {belumTl}{" "}
-                  <span className="font-normal text-slate-400">
+                <span className="text-xs font-bold text-slate-800">
+                  {belumTl}
+                  <span className="ml-1 font-normal text-slate-400">
                     ({persentaseBelumTl}%)
                   </span>
                 </span>
               </div>
 
-              <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+              <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
                 <div
                   className="h-full rounded-full bg-red-500 transition-all"
                   style={{
@@ -628,19 +746,22 @@ export default function LaporanPage() {
           </div>
         </div>
 
-        {/* RING */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="mb-6">
-            <h2 className="font-bold text-[#071426]">Capaian Tindak Lanjut</h2>
+        {/* CAPAIAN */}
 
-            <p className="mt-1 text-xs text-slate-400">
-              Persentase rekomendasi yang sudah tuntas
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4">
+            <h2 className="text-sm font-bold text-[#071426]">
+              Capaian Tindak Lanjut
+            </h2>
+
+            <p className="mt-1 text-[11px] text-slate-400">
+              Persentase rekomendasi yang sudah tuntas.
             </p>
           </div>
 
           <div className="flex items-center justify-center">
             <div
-              className="relative flex h-48 w-48 items-center justify-center rounded-full"
+              className="relative flex h-40 w-40 items-center justify-center rounded-full"
               style={{
                 background: `conic-gradient(
                   #16A34A ${persentaseTuntas}%,
@@ -648,78 +769,111 @@ export default function LaporanPage() {
                 )`,
               }}
             >
-              <div className="flex h-36 w-36 flex-col items-center justify-center rounded-full bg-white">
-                <span className="text-4xl font-bold text-[#071426]">
+              <div className="flex h-30 w-30 flex-col items-center justify-center rounded-full bg-white">
+                <span className="text-3xl font-bold text-[#071426]">
                   {persentaseTuntas}%
                 </span>
 
-                <span className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                <span className="mt-1 text-[9px] font-semibold uppercase tracking-wider text-slate-400">
                   Tuntas
                 </span>
               </div>
             </div>
           </div>
 
-          <div className="mt-6 text-center">
-            <p className="text-sm font-semibold text-slate-700">
+          <div className="mt-5 text-center">
+            <p className="text-xs font-semibold text-slate-700">
               {sudahTuntas} dari {total} rekomendasi
             </p>
 
-            <p className="mt-1 text-xs text-slate-400">
-              telah menyelesaikan tindak lanjut
+            <p className="mt-1 text-[10px] text-slate-400">
+              telah menyelesaikan tindak lanjut.
             </p>
           </div>
         </div>
       </section>
 
-      {/* ================= SUMBER ================= */}
-      <section className="mb-6 grid gap-4 md:grid-cols-2">
+      {/* =====================================================
+          SUMBER APF
+      ===================================================== */}
+
+      <section className="mb-5 grid gap-4 md:grid-cols-2">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
-            BPK
-          </p>
-
-          <p className="mt-2 text-3xl font-bold text-[#071426]">{bpkTotal}</p>
-
-          <p className="mt-1 text-xs text-slate-400">
-            Rekomendasi hasil pemeriksaan BPK
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
-            Itjen
-          </p>
-
-          <p className="mt-2 text-3xl font-bold text-[#071426]">{itjenTotal}</p>
-
-          <p className="mt-1 text-xs text-slate-400">
-            Rekomendasi hasil pemeriksaan Itjen
-          </p>
-        </div>
-      </section>
-
-      {/* ================= TABLE ================= */}
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-100 px-6 py-5">
-          <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
+          <div className="flex items-center justify-between">
             <div>
-              <h2 className="font-bold text-[#071426]">
-                Rekapitulasi Data APF
-              </h2>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                BPK
+              </p>
 
-              <p className="mt-1 text-xs text-slate-400">
-                Data laporan berdasarkan filter yang dipilih.
+              <p className="mt-2 text-3xl font-bold text-[#071426]">
+                {bpkTotal}
+              </p>
+
+              <p className="mt-1 text-[10px] text-slate-400">
+                Rekomendasi hasil pemeriksaan BPK
               </p>
             </div>
 
-            {/* SEARCH */}
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#EEF3FA] text-lg">
+              🏛️
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                ITJEN
+              </p>
+
+              <p className="mt-2 text-3xl font-bold text-[#071426]">
+                {itjenTotal}
+              </p>
+
+              <p className="mt-1 text-[10px] text-slate-400">
+                Rekomendasi hasil pemeriksaan Itjen
+              </p>
+            </div>
+
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#EEF3FA] text-lg">
+              🛡️
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* =====================================================
+          TABLE
+      ===================================================== */}
+
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 px-5 py-5">
+          <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EEF3FA] text-sm">
+                  📊
+                </span>
+
+                <div>
+                  <h2 className="text-sm font-bold text-[#071426]">
+                    Rekapitulasi Data APF
+                  </h2>
+
+                  <p className="mt-0.5 text-[11px] text-slate-400">
+                    Data laporan berdasarkan filter yang dipilih.
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <input
               type="text"
               placeholder="Cari nomor LHA..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-medium text-black placeholder:text-slate-400 outline-none transition focus:border-[#D4A72C] focus:bg-white focus:text-black sm:w-64"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-medium text-black placeholder:text-slate-400 outline-none transition focus:border-[#D4A72C] focus:bg-white sm:w-64"
             />
           </div>
         </div>
@@ -728,7 +882,7 @@ export default function LaporanPage() {
           <div className="px-6 py-16 text-center">
             <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-[#D4A72C]" />
 
-            <p className="text-sm text-slate-400">Memuat laporan...</p>
+            <p className="text-xs text-slate-400">Memuat laporan...</p>
           </div>
         ) : filteredData.length === 0 ? (
           <div className="px-6 py-16 text-center">
@@ -736,7 +890,7 @@ export default function LaporanPage() {
               —
             </div>
 
-            <p className="font-semibold text-slate-700">
+            <p className="text-sm font-semibold text-slate-700">
               Tidak ada data ditemukan
             </p>
 
@@ -749,39 +903,39 @@ export default function LaporanPage() {
             <table className="w-full min-w-[1200px] text-left">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50/70">
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  <th className="px-5 py-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     No
                   </th>
 
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  <th className="px-5 py-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     APF
                   </th>
 
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  <th className="px-5 py-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     LHA / LHP
                   </th>
 
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  <th className="px-5 py-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     Tanggal
                   </th>
 
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  <th className="px-5 py-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     Kategori
                   </th>
 
-                  <th className="px-6 py-4 text-center text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  <th className="px-5 py-3.5 text-center text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     Rek.
                   </th>
 
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  <th className="px-5 py-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     Saldo
                   </th>
 
-                  <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  <th className="px-5 py-3.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     Tindak Lanjut
                   </th>
 
-                  <th className="px-6 py-4 text-right text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  <th className="px-5 py-3.5 text-right text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     Aksi
                   </th>
                 </tr>
@@ -791,49 +945,49 @@ export default function LaporanPage() {
                 {filteredData.map((item, index) => (
                   <tr
                     key={item.id}
-                    className="border-b border-slate-100 last:border-0 hover:bg-slate-50/60"
+                    className="border-b border-slate-100 last:border-0 transition hover:bg-slate-50/60"
                   >
-                    <td className="px-6 py-4 text-sm text-slate-400">
+                    <td className="px-5 py-4 text-xs text-slate-400">
                       {index + 1}
                     </td>
 
-                    <td className="px-6 py-4">
-                      <span className="inline-flex rounded-lg bg-[#071426] px-3 py-1.5 text-xs font-bold text-white">
+                    <td className="px-5 py-4">
+                      <span className="inline-flex rounded-lg bg-[#071B41] px-3 py-1.5 text-[10px] font-bold text-white">
                         {item.source}
                       </span>
                     </td>
 
-                    <td className="px-6 py-4">
-                      <p className="font-semibold text-[#071426]">
+                    <td className="px-5 py-4">
+                      <p className="text-xs font-semibold text-[#071426]">
                         {item.lha_number}
                       </p>
 
                       {item.description && (
-                        <p className="mt-1 max-w-xs truncate text-xs text-slate-400">
+                        <p className="mt-1 max-w-xs truncate text-[10px] text-slate-400">
                           {item.description}
                         </p>
                       )}
                     </td>
 
-                    <td className="px-6 py-4 text-sm text-slate-600">
+                    <td className="px-5 py-4 text-xs text-slate-600">
                       {formatDate(item.lha_date)}
                     </td>
 
-                    <td className="px-6 py-4">
-                      <span className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600">
+                    <td className="px-5 py-4">
+                      <span className="rounded-lg bg-slate-100 px-3 py-1.5 text-[10px] font-medium text-slate-600">
                         {item.category}
                       </span>
                     </td>
 
-                    <td className="px-6 py-4 text-center">
-                      <span className="font-bold text-[#071426]">
+                    <td className="px-5 py-4 text-center">
+                      <span className="text-xs font-bold text-[#071426]">
                         {item.recommendation_count}
                       </span>
                     </td>
 
-                    <td className="px-6 py-4">
+                    <td className="px-5 py-4">
                       <span
-                        className={`inline-flex rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+                        className={`inline-flex rounded-lg border px-3 py-1.5 text-[10px] font-semibold ${
                           item.saldo_status === "MASUK_SALDO"
                             ? "border-green-200 bg-green-50 text-green-700"
                             : item.saldo_status === "BELUM_SALDO"
@@ -845,9 +999,9 @@ export default function LaporanPage() {
                       </span>
                     </td>
 
-                    <td className="px-6 py-4">
+                    <td className="px-5 py-4">
                       <span
-                        className={`inline-flex rounded-lg border px-3 py-1.5 text-xs font-semibold ${getStatusStyle(
+                        className={`inline-flex rounded-lg border px-3 py-1.5 text-[10px] font-semibold ${getStatusStyle(
                           item.follow_up_status
                         )}`}
                       >
@@ -855,10 +1009,10 @@ export default function LaporanPage() {
                       </span>
                     </td>
 
-                    <td className="px-6 py-4 text-right">
+                    <td className="px-5 py-4 text-right">
                       <button
                         onClick={() => setSelected(item)}
-                        className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-[#D4A72C] hover:text-[#9B7518]"
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-semibold text-slate-600 transition hover:border-[#D4A72C] hover:text-[#9B7518]"
                       >
                         Detail
                       </button>
@@ -870,8 +1024,8 @@ export default function LaporanPage() {
           </div>
         )}
 
-        <div className="border-t border-slate-100 bg-slate-50/50 px-6 py-4">
-          <p className="text-xs text-slate-400">
+        <div className="border-t border-slate-100 bg-slate-50/50 px-5 py-3.5">
+          <p className="text-[10px] text-slate-400">
             Menampilkan{" "}
             <span className="font-semibold text-slate-600">
               {filteredData.length}
@@ -883,47 +1037,56 @@ export default function LaporanPage() {
         </div>
       </section>
 
-      {/* ================= DETAIL DRAWER ================= */}
+      {/* =====================================================
+          DETAIL DRAWER
+      ===================================================== */}
+
       {selected && (
         <div className="fixed inset-0 z-[100] flex justify-end">
           <div
-            className="absolute inset-0 bg-[#071426]/40 backdrop-blur-sm"
+            className="absolute inset-0 bg-[#071426]/50 backdrop-blur-sm"
             onClick={() => setSelected(null)}
           />
 
           <aside className="relative h-full w-full max-w-xl overflow-y-auto bg-white shadow-2xl">
-            <div className="border-b border-slate-200 px-6 py-5">
+            {/* HEADER DRAWER */}
+
+            <div className="border-b border-slate-200 bg-[#071B41] px-6 py-5 text-white">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#D4A72C]">
+                  <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-blue-200">
                     Detail Laporan APF
                   </span>
 
-                  <h2 className="mt-2 text-xl font-bold text-[#071426]">
+                  <h2 className="mt-2 text-xl font-bold">
                     {selected.lha_number}
                   </h2>
                 </div>
 
                 <button
                   onClick={() => setSelected(null)}
-                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50"
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/20 bg-white/10 text-white transition hover:bg-white/20"
                 >
                   ×
                 </button>
               </div>
             </div>
 
-            <div className="space-y-6 p-6">
-              <div className="rounded-2xl bg-[#071426] p-5 text-white">
+            <div className="space-y-5 p-6">
+              {/* SUMMARY */}
+
+              <div className="rounded-2xl bg-[#071B41] p-5 text-white">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-xs text-slate-400">Sumber APF</p>
+                    <p className="text-[10px] text-blue-200">Sumber APF</p>
 
                     <p className="mt-1 text-xl font-bold">{selected.source}</p>
                   </div>
 
                   <div className="text-right">
-                    <p className="text-xs text-slate-400">Jumlah Rekomendasi</p>
+                    <p className="text-[10px] text-blue-200">
+                      Jumlah Rekomendasi
+                    </p>
 
                     <p className="mt-1 text-3xl font-bold">
                       {selected.recommendation_count}
@@ -932,45 +1095,59 @@ export default function LaporanPage() {
                 </div>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="rounded-xl border border-slate-200 p-4">
-                  <p className="text-xs text-slate-400">Nomor LHA / LHP</p>
+              {/* DETAIL GRID */}
 
-                  <p className="mt-2 text-sm font-semibold text-slate-700">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-[10px] text-slate-400">Nomor LHA / LHP</p>
+
+                  <p className="mt-2 text-xs font-semibold text-slate-700">
                     {selected.lha_number}
                   </p>
                 </div>
 
-                <div className="rounded-xl border border-slate-200 p-4">
-                  <p className="text-xs text-slate-400">Tanggal</p>
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-[10px] text-slate-400">Tanggal</p>
 
-                  <p className="mt-2 text-sm font-semibold text-slate-700">
+                  <p className="mt-2 text-xs font-semibold text-slate-700">
                     {formatDate(selected.lha_date)}
                   </p>
                 </div>
 
-                <div className="rounded-xl border border-slate-200 p-4">
-                  <p className="text-xs text-slate-400">Kategori</p>
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-[10px] text-slate-400">Kategori</p>
 
-                  <p className="mt-2 text-sm font-semibold text-slate-700">
+                  <p className="mt-2 text-xs font-semibold text-slate-700">
                     {selected.category}
                   </p>
                 </div>
 
-                <div className="rounded-xl border border-slate-200 p-4">
-                  <p className="text-xs text-slate-400">Status Saldo</p>
-
-                  <p className="mt-2 text-sm font-semibold text-slate-700">
-                    {getSaldoLabel(selected.saldo_status)}
-                  </p>
-                </div>
-
-                <div className="rounded-xl border border-slate-200 p-4 sm:col-span-2">
-                  <p className="text-xs text-slate-400">Status Tindak Lanjut</p>
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-[10px] text-slate-400">Status Saldo</p>
 
                   <div className="mt-2">
                     <span
-                      className={`inline-flex rounded-lg border px-3 py-1.5 text-xs font-semibold ${getStatusStyle(
+                      className={`inline-flex rounded-lg border px-3 py-1.5 text-[10px] font-semibold ${
+                        selected.saldo_status === "MASUK_SALDO"
+                          ? "border-green-200 bg-green-50 text-green-700"
+                          : selected.saldo_status === "BELUM_SALDO"
+                          ? "border-red-200 bg-red-50 text-red-700"
+                          : "border-slate-200 bg-slate-100 text-slate-600"
+                      }`}
+                    >
+                      {getSaldoLabel(selected.saldo_status)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-white p-4 sm:col-span-2">
+                  <p className="text-[10px] text-slate-400">
+                    Status Tindak Lanjut
+                  </p>
+
+                  <div className="mt-2">
+                    <span
+                      className={`inline-flex rounded-lg border px-3 py-1.5 text-[10px] font-semibold ${getStatusStyle(
                         selected.follow_up_status
                       )}`}
                     >
@@ -980,12 +1157,14 @@ export default function LaporanPage() {
                 </div>
               </div>
 
-              <div className="rounded-xl border border-slate-200 p-5">
-                <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              {/* KETERANGAN */}
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-5">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                   Keterangan
                 </p>
 
-                <p className="mt-3 text-sm leading-7 text-slate-600">
+                <p className="mt-3 text-xs leading-6 text-slate-600">
                   {selected.description || "Tidak ada keterangan."}
                 </p>
               </div>
