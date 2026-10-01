@@ -16,58 +16,36 @@ export async function GET() {
      * SUMMARY SELURUH DATA
      * =========================================================
      *
-     * Rumus mengikuti Excel:
+     * 1 baris pada tabel recommendations = 1 rekomendasi.
      *
      * Capaian =
      * ((TL Belum Tuntas × 70%) +
      *  (TL Sudah Tuntas × 100%))
      * / Total Rekomendasi
-     *
-     * Belum TL = 0%
      */
 
     const result = await pool.query(`
       SELECT
-      COUNT(*)::int AS total,
+        COUNT(*)::int AS total,
 
-        COALESCE(
-          SUM(recommendation_count)
-          FILTER (
-            WHERE follow_up_status = 'BELUM_TL'
-          ),
-          0
+        COUNT(*) FILTER (
+          WHERE follow_up_status = 'BELUM_TL'
         )::int AS belum_tl,
 
-        COALESCE(
-          SUM(recommendation_count)
-          FILTER (
-            WHERE follow_up_status = 'SUDAH_TL'
-          ),
-          0
+        COUNT(*) FILTER (
+          WHERE follow_up_status = 'SUDAH_TL'
         )::int AS tl_belum_tuntas,
 
-        COALESCE(
-          SUM(recommendation_count)
-          FILTER (
-            WHERE follow_up_status = 'SUDAH_TUNTAS'
-          ),
-          0
+        COUNT(*) FILTER (
+          WHERE follow_up_status = 'SUDAH_TUNTAS'
         )::int AS tl_sudah_tuntas,
 
-        COALESCE(
-          SUM(recommendation_count)
-          FILTER (
-            WHERE saldo_status = 'MASUK_SALDO'
-          ),
-          0
+        COUNT(*) FILTER (
+          WHERE saldo_status = 'MASUK_SALDO'
         )::int AS masuk_saldo,
 
-        COALESCE(
-          SUM(recommendation_count)
-          FILTER (
-            WHERE saldo_status = 'BELUM_SALDO'
-          ),
-          0
+        COUNT(*) FILTER (
+          WHERE saldo_status = 'BELUM_SALDO'
         )::int AS belum_saldo
 
       FROM recommendations
@@ -81,62 +59,34 @@ export async function GET() {
 
     const bpkResult = await pool.query(`
       SELECT
-        COALESCE(SUM(recommendation_count), 0)::int AS total,
+        COUNT(*)::int AS total,
 
-        COALESCE(
-          SUM(recommendation_count)
-          FILTER (
-            WHERE saldo_status = 'MASUK_SALDO'
-          ),
-          0
+        COUNT(*) FILTER (
+          WHERE saldo_status = 'MASUK_SALDO'
         )::int AS masuk_saldo,
 
-        COALESCE(
-          SUM(recommendation_count)
-          FILTER (
-            WHERE saldo_status = 'BELUM_SALDO'
-          ),
-          0
+        COUNT(*) FILTER (
+          WHERE saldo_status = 'BELUM_SALDO'
         )::int AS belum_saldo,
 
-        COALESCE(
-          SUM(recommendation_count)
-          FILTER (
-            WHERE category = 'Laporan Keuangan'
-          ),
-          0
+        COUNT(*) FILTER (
+          WHERE category = 'Laporan Keuangan'
         )::int AS keuangan,
 
-        COALESCE(
-          SUM(recommendation_count)
-          FILTER (
-            WHERE category = 'Bukan Keuangan'
-          ),
-          0
+        COUNT(*) FILTER (
+          WHERE category = 'Bukan Keuangan'
         )::int AS bukan_keuangan,
 
-        COALESCE(
-          SUM(recommendation_count)
-          FILTER (
-            WHERE follow_up_status = 'BELUM_TL'
-          ),
-          0
+        COUNT(*) FILTER (
+          WHERE follow_up_status = 'BELUM_TL'
         )::int AS belum_tl,
 
-        COALESCE(
-          SUM(recommendation_count)
-          FILTER (
-            WHERE follow_up_status = 'SUDAH_TL'
-          ),
-          0
+        COUNT(*) FILTER (
+          WHERE follow_up_status = 'SUDAH_TL'
         )::int AS tl_belum_tuntas,
 
-        COALESCE(
-          SUM(recommendation_count)
-          FILTER (
-            WHERE follow_up_status = 'SUDAH_TUNTAS'
-          ),
-          0
+        COUNT(*) FILTER (
+          WHERE follow_up_status = 'SUDAH_TUNTAS'
         )::int AS tl_sudah_tuntas
 
       FROM recommendations
@@ -151,30 +101,18 @@ export async function GET() {
 
     const itjenResult = await pool.query(`
       SELECT
-        COALESCE(SUM(recommendation_count), 0)::int AS total,
+        COUNT(*)::int AS total,
 
-        COALESCE(
-          SUM(recommendation_count)
-          FILTER (
-            WHERE follow_up_status = 'BELUM_TL'
-          ),
-          0
+        COUNT(*) FILTER (
+          WHERE follow_up_status = 'BELUM_TL'
         )::int AS belum_tl,
 
-        COALESCE(
-          SUM(recommendation_count)
-          FILTER (
-            WHERE follow_up_status = 'SUDAH_TL'
-          ),
-          0
+        COUNT(*) FILTER (
+          WHERE follow_up_status = 'SUDAH_TL'
         )::int AS tl_belum_tuntas,
 
-        COALESCE(
-          SUM(recommendation_count)
-          FILTER (
-            WHERE follow_up_status = 'SUDAH_TUNTAS'
-          ),
-          0
+        COUNT(*) FILTER (
+          WHERE follow_up_status = 'SUDAH_TUNTAS'
         )::int AS tl_sudah_tuntas
 
       FROM recommendations
@@ -198,16 +136,6 @@ export async function GET() {
      * =========================================================
      * RUMUS CAPAIAN SESUAI EXCEL
      * =========================================================
-     *
-     * Excel:
-     *
-     * =((70%*G7)+(100%*H7))/E7
-     *
-     * Web:
-     *
-     * =((70 * TL_BELUM_TUNTAS)
-     *   +(100 * TL_SUDAH_TUNTAS))
-     *  / TOTAL
      */
 
     const capaian =
@@ -254,11 +182,7 @@ export async function GET() {
         belumTl,
 
         /*
-         * Nama ini tetap dibuat agar tidak merusak
-         * struktur frontend yang sudah ada.
-         *
          * SUDAH TL di sistem = TL Belum Tuntas
-         * sesuai rumus Excel = 70%
          */
         sudahTl: tlBelumTuntas,
 
@@ -287,9 +211,6 @@ export async function GET() {
 
           belumTl: Number(bpk.belum_tl) || 0,
 
-          /*
-           * SUDAH TL = TL BELUM TUNTAS
-           */
           sudahTl: Number(bpk.tl_belum_tuntas) || 0,
 
           sudahTuntas: Number(bpk.tl_sudah_tuntas) || 0,
