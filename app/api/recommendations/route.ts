@@ -49,11 +49,19 @@ export async function GET(request: NextRequest) {
         recommendation_count,
         temuan,
         recommendation,
-
+        
         description,
         keterangan_1,
         keterangan_2,
         keterangan_3,
+        
+        no_temuan,
+        judul,
+        rencana_aksi,
+        keterangan_bukti_dukung,
+        waktu_pelaksanaan,
+        uic,
+        tindak_lanjut,
 
         follow_up_status,
         saldo_status,
@@ -156,6 +164,15 @@ export async function POST(request: NextRequest) {
           keterangan_1: body.keterangan_1 || "",
           keterangan_2: body.keterangan_2 || "",
           keterangan_3: body.keterangan_3 || "",
+
+          // Kolom baru
+          no_temuan: body.no_temuan || "",
+          judul: body.judul || "",
+          rencana_aksi: body.rencana_aksi || "",
+          keterangan_bukti_dukung: body.keterangan_bukti_dukung || "",
+          waktu_pelaksanaan: body.waktu_pelaksanaan || null,
+          uic: body.uic || "",
+          tindak_lanjut: body.tindak_lanjut || "",
 
           // Tetap dukung data lama
           description: body.description || "",
@@ -275,7 +292,15 @@ export async function POST(request: NextRequest) {
           keterangan_1,
           keterangan_2,
           keterangan_3,
-
+          
+          no_temuan,
+          judul,
+          rencana_aksi,
+          keterangan_bukti_dukung,
+          waktu_pelaksanaan,
+          uic,
+          tindak_lanjut,
+          
           follow_up_status,
           saldo_status,
           capaian
@@ -295,10 +320,18 @@ export async function POST(request: NextRequest) {
           $10,
           $11,
           $12,
-
+          
           $13,
           $14,
-          $15
+          $15,
+          $16,
+          $17,
+          $18,
+          $19,
+          
+          $20,
+          $21,
+          $22
         )
         RETURNING *
         `,
@@ -319,6 +352,13 @@ export async function POST(request: NextRequest) {
           item.keterangan_1 || "",
           item.keterangan_2 || "",
           item.keterangan_3 || "",
+          item.no_temuan || "",
+          item.judul || "",
+          item.rencana_aksi || "",
+          item.keterangan_bukti_dukung || "",
+          item.waktu_pelaksanaan || null,
+          item.uic || "",
+          item.tindak_lanjut || "",
 
           item.followUpStatus,
           item.saldoStatus,
@@ -401,6 +441,14 @@ export async function PUT(request: NextRequest) {
       keterangan_2,
       keterangan_3,
 
+      no_temuan,
+      judul,
+      rencana_aksi,
+      keterangan_bukti_dukung,
+      waktu_pelaksanaan,
+      uic,
+      tindak_lanjut,
+
       followUpStatus,
       saldoStatus,
     } = body;
@@ -481,13 +529,20 @@ export async function PUT(request: NextRequest) {
         keterangan_1 = $9,
         keterangan_2 = $10,
         keterangan_3 = $11,
+        no_temuan = $12,
+        judul = $13,
+        rencana_aksi = $14,
+        keterangan_bukti_dukung = $15,
+        waktu_pelaksanaan = $16,
+        uic = $17,
+        tindak_lanjut = $18,
 
-        follow_up_status = $12,
-        saldo_status = $13,
-        capaian = $14,
+        follow_up_status = $19,
+saldo_status = $20,
+capaian = $21,
 
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = $15
+updated_at = CURRENT_TIMESTAMP
+WHERE id = $22
       RETURNING *
       `,
       [
@@ -504,6 +559,13 @@ export async function PUT(request: NextRequest) {
         keterangan_1 || "",
         keterangan_2 || "",
         keterangan_3 || "",
+        no_temuan || "",
+        judul || "",
+        rencana_aksi || "",
+        keterangan_bukti_dukung || "",
+        waktu_pelaksanaan || null,
+        uic || "",
+        tindak_lanjut || "",
 
         followUpStatus,
         saldoStatus,

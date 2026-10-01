@@ -4,10 +4,20 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
 type RecommendationItem = {
-  temuan: string;
-  recommendation: string;
+  noTemuan: string;
+  judul: string;
+  rencanaAksi: string;
+  keteranganBuktiDukung: string;
+  waktuPelaksanaan: string;
+  uic: string;
+  tindakLanjut: string;
+
   followUpStatus: string;
   saldoStatus: string;
+
+  // Data lama tetap dipertahankan
+  temuan: string;
+  recommendation: string;
   keterangan_1: string;
   keterangan_2: string;
   keterangan_3: string;
@@ -28,6 +38,13 @@ type Recommendation = {
   keterangan_1?: string | null;
   keterangan_2?: string | null;
   keterangan_3?: string | null;
+  no_temuan?: string | null;
+  judul?: string | null;
+  rencana_aksi?: string | null;
+  keterangan_bukti_dukung?: string | null;
+  waktu_pelaksanaan?: string | null;
+  uic?: string | null;
+  tindak_lanjut?: string | null;
 };
 
 type Props = {
@@ -42,10 +59,20 @@ type ApiResponse = {
 };
 
 const emptyItem = (): RecommendationItem => ({
-  temuan: "",
-  recommendation: "",
+  noTemuan: "",
+  judul: "",
+  rencanaAksi: "",
+  keteranganBuktiDukung: "",
+  waktuPelaksanaan: "",
+  uic: "",
+  tindakLanjut: "",
+
   followUpStatus: "BELUM_TL",
   saldoStatus: "BELUM_SALDO",
+
+  // Data lama tetap dipertahankan
+  temuan: "",
+  recommendation: "",
   keterangan_1: "",
   keterangan_2: "",
   keterangan_3: "",
@@ -92,10 +119,20 @@ export default function RecommendationForm({
 
     setItems([
       {
-        temuan: editingData.temuan || "",
-        recommendation: editingData.recommendation || "",
+        noTemuan: editingData.no_temuan || "",
+        judul: editingData.judul || "",
+        rencanaAksi: editingData.rencana_aksi || "",
+        keteranganBuktiDukung: editingData.keterangan_bukti_dukung || "",
+        waktuPelaksanaan: editingData.waktu_pelaksanaan?.substring(0, 10) || "",
+        uic: editingData.uic || "",
+        tindakLanjut: editingData.tindak_lanjut || "",
+
         followUpStatus: editingData.follow_up_status || "BELUM_TL",
         saldoStatus: editingData.saldo_status || "BELUM_SALDO",
+
+        // Data lama tetap dimuat
+        temuan: editingData.temuan || "",
+        recommendation: editingData.recommendation || "",
         keterangan_1: editingData.keterangan_1 || "",
         keterangan_2: editingData.keterangan_2 || "",
         keterangan_3: editingData.keterangan_3 || "",
@@ -147,11 +184,12 @@ export default function RecommendationForm({
     }
 
     const hasIncompleteItem = items.some(
-      (item) => !item.temuan.trim() || !item.recommendation.trim()
+      (item) =>
+        !item.noTemuan.trim() || !item.judul.trim() || !item.rencanaAksi.trim()
     );
 
     if (hasIncompleteItem) {
-      return "Temuan dan rekomendasi wajib diisi untuk setiap baris.";
+      return "No Temuan, Judul, dan Rencana Aksi wajib diisi untuk setiap baris.";
     }
 
     return null;
@@ -186,27 +224,52 @@ export default function RecommendationForm({
       ? {
           id: editingData!.id,
           ...commonData,
-          temuan: items[0].temuan.trim(),
-          recommendation: items[0].recommendation.trim(),
+
+          // DATA BARU
+          no_temuan: items[0].noTemuan.trim(),
+          judul: items[0].judul.trim(),
+          rencana_aksi: items[0].rencanaAksi.trim(),
+          keterangan_bukti_dukung: items[0].keteranganBuktiDukung.trim(),
+          waktu_pelaksanaan: items[0].waktuPelaksanaan || null,
+          uic: items[0].uic.trim(),
+          tindak_lanjut: items[0].tindakLanjut.trim(),
+
+          // STATUS TETAP DIPERTAHANKAN
           followUpStatus: items[0].followUpStatus,
           saldoStatus: items[0].saldoStatus,
+
+          // DATA LAMA TETAP DIKIRIM
+          temuan: items[0].temuan.trim(),
+          recommendation: items[0].recommendation.trim(),
           keterangan_1: items[0].keterangan_1.trim(),
           keterangan_2: items[0].keterangan_2.trim(),
           keterangan_3: items[0].keterangan_3.trim(),
         }
       : {
           ...commonData,
+
           recommendations: items.map((item) => ({
-            temuan: item.temuan.trim(),
-            recommendation: item.recommendation.trim(),
+            // DATA BARU
+            no_temuan: item.noTemuan.trim(),
+            judul: item.judul.trim(),
+            rencana_aksi: item.rencanaAksi.trim(),
+            keterangan_bukti_dukung: item.keteranganBuktiDukung.trim(),
+            waktu_pelaksanaan: item.waktuPelaksanaan || null,
+            uic: item.uic.trim(),
+            tindak_lanjut: item.tindakLanjut.trim(),
+
+            // STATUS TETAP DIPERTAHANKAN
             followUpStatus: item.followUpStatus,
             saldoStatus: item.saldoStatus,
+
+            // DATA LAMA TETAP DIKIRIM
+            temuan: item.temuan.trim(),
+            recommendation: item.recommendation.trim(),
             keterangan_1: item.keterangan_1.trim(),
             keterangan_2: item.keterangan_2.trim(),
             keterangan_3: item.keterangan_3.trim(),
           })),
         };
-
     try {
       const response = await fetch("/api/recommendations", {
         method: isEditing ? "PUT" : "POST",
@@ -452,54 +515,174 @@ export default function RecommendationForm({
                   </div>
 
                   <div className="space-y-5 p-5">
-                    {/* TEMUAN */}
+                    {/* DATA REKOMENDASI */}
+                    <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                      {/* NO TEMUAN */}
+                      <div>
+                        <label
+                          htmlFor={`noTemuan-${index}`}
+                          className={labelClass}
+                        >
+                          No Temuan <span className="text-red-500">*</span>
+                        </label>
+
+                        <input
+                          id={`noTemuan-${index}`}
+                          required
+                          type="text"
+                          value={item.noTemuan}
+                          onChange={(event) =>
+                            updateItem(index, "noTemuan", event.target.value)
+                          }
+                          placeholder="Contoh: 01"
+                          className={inputClass}
+                          disabled={loading}
+                        />
+                      </div>
+
+                      {/* JUDUL */}
+                      <div>
+                        <label
+                          htmlFor={`judul-${index}`}
+                          className={labelClass}
+                        >
+                          Judul <span className="text-red-500">*</span>
+                        </label>
+
+                        <input
+                          id={`judul-${index}`}
+                          required
+                          type="text"
+                          value={item.judul}
+                          onChange={(event) =>
+                            updateItem(index, "judul", event.target.value)
+                          }
+                          placeholder="Masukkan judul temuan/rekomendasi"
+                          className={inputClass}
+                          disabled={loading}
+                        />
+                      </div>
+                    </div>
+
+                    {/* RENCANA AKSI */}
                     <div>
-                      <label htmlFor={`temuan-${index}`} className={labelClass}>
-                        Temuan <span className="text-red-500">*</span>
+                      <label
+                        htmlFor={`rencanaAksi-${index}`}
+                        className={labelClass}
+                      >
+                        Rencana Aksi <span className="text-red-500">*</span>
                       </label>
 
                       <textarea
-                        id={`temuan-${index}`}
+                        id={`rencanaAksi-${index}`}
                         required
                         rows={4}
-                        value={item.temuan}
+                        value={item.rencanaAksi}
                         onChange={(event) =>
-                          updateItem(index, "temuan", event.target.value)
+                          updateItem(index, "rencanaAksi", event.target.value)
                         }
-                        placeholder="Tuliskan temuan pemeriksaan..."
+                        placeholder="Tuliskan rencana aksi..."
                         className={`${inputClass} resize-y`}
                         disabled={loading}
                       />
                     </div>
 
-                    {/* REKOMENDASI */}
+                    {/* KETERANGAN / BUKTI DUKUNG */}
                     <div>
                       <label
-                        htmlFor={`recommendation-${index}`}
+                        htmlFor={`keteranganBuktiDukung-${index}`}
                         className={labelClass}
                       >
-                        Rekomendasi <span className="text-red-500">*</span>
+                        Keterangan / Bukti Dukung
                       </label>
 
                       <textarea
-                        id={`recommendation-${index}`}
-                        required
+                        id={`keteranganBuktiDukung-${index}`}
                         rows={4}
-                        value={item.recommendation}
+                        value={item.keteranganBuktiDukung}
                         onChange={(event) =>
                           updateItem(
                             index,
-                            "recommendation",
+                            "keteranganBuktiDukung",
                             event.target.value
                           )
                         }
-                        placeholder="Tuliskan rekomendasi untuk temuan ini..."
+                        placeholder="Tuliskan keterangan atau bukti dukung..."
                         className={`${inputClass} resize-y`}
                         disabled={loading}
                       />
                     </div>
 
+                    {/* WAKTU PELAKSANAAN & UIC */}
+                    <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                      {/* WAKTU PELAKSANAAN */}
+                      <div>
+                        <label
+                          htmlFor={`waktuPelaksanaan-${index}`}
+                          className={labelClass}
+                        >
+                          Waktu Pelaksanaan
+                        </label>
+
+                        <input
+                          id={`waktuPelaksanaan-${index}`}
+                          type="date"
+                          value={item.waktuPelaksanaan}
+                          onChange={(event) =>
+                            updateItem(
+                              index,
+                              "waktuPelaksanaan",
+                              event.target.value
+                            )
+                          }
+                          className={inputClass}
+                          disabled={loading}
+                        />
+                      </div>
+
+                      {/* UIC */}
+                      <div>
+                        <label htmlFor={`uic-${index}`} className={labelClass}>
+                          UIC
+                        </label>
+
+                        <input
+                          id={`uic-${index}`}
+                          type="text"
+                          value={item.uic}
+                          onChange={(event) =>
+                            updateItem(index, "uic", event.target.value)
+                          }
+                          placeholder="Masukkan UIC"
+                          className={inputClass}
+                          disabled={loading}
+                        />
+                      </div>
+                    </div>
+
+                    {/* TINDAK LANJUT */}
+                    <div>
+                      <label
+                        htmlFor={`tindakLanjut-${index}`}
+                        className={labelClass}
+                      >
+                        Tindak Lanjut
+                      </label>
+
+                      <textarea
+                        id={`tindakLanjut-${index}`}
+                        rows={4}
+                        value={item.tindakLanjut}
+                        onChange={(event) =>
+                          updateItem(index, "tindakLanjut", event.target.value)
+                        }
+                        placeholder="Tuliskan tindak lanjut..."
+                        className={`${inputClass} resize-y`}
+                        disabled={loading}
+                      />
+                    </div>
                     {/* STATUS */}
+
                     <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
                       <div>
                         <label
@@ -527,8 +710,6 @@ export default function RecommendationForm({
                           <option value="SUDAH_TL">Sudah Tindak Lanjut</option>
 
                           <option value="SUDAH_TUNTAS">Sudah Tuntas</option>
-
-                          <option value="BELUM_TUNTAS">Belum Tuntas</option>
                         </select>
                       </div>
 
@@ -555,101 +736,6 @@ export default function RecommendationForm({
 
                           <option value="TIDAK_RELEVAN">Tidak Relevan</option>
                         </select>
-                      </div>
-                    </div>
-
-                    {/* KETERANGAN */}
-                    <div>
-                      <div className="mb-4">
-                        <h4 className="text-sm font-bold text-slate-800">
-                          Keterangan
-                        </h4>
-
-                        <p className="mt-1 text-xs text-slate-500">
-                          Keterangan dibagi menjadi tiga bagian agar informasi
-                          lebih mudah dibaca dan tidak terlalu panjang dalam
-                          satu kolom.
-                        </p>
-                      </div>
-
-                      <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
-                        {/* KETERANGAN 1 */}
-                        <div>
-                          <label
-                            htmlFor={`keterangan-1-${index}`}
-                            className={labelClass}
-                          >
-                            Keterangan 1
-                          </label>
-
-                          <textarea
-                            id={`keterangan-1-${index}`}
-                            rows={5}
-                            value={item.keterangan_1}
-                            onChange={(event) =>
-                              updateItem(
-                                index,
-                                "keterangan_1",
-                                event.target.value
-                              )
-                            }
-                            placeholder="Keterangan bagian pertama..."
-                            className={`${inputClass} resize-y`}
-                            disabled={loading}
-                          />
-                        </div>
-
-                        {/* KETERANGAN 2 */}
-                        <div>
-                          <label
-                            htmlFor={`keterangan-2-${index}`}
-                            className={labelClass}
-                          >
-                            Keterangan 2
-                          </label>
-
-                          <textarea
-                            id={`keterangan-2-${index}`}
-                            rows={5}
-                            value={item.keterangan_2}
-                            onChange={(event) =>
-                              updateItem(
-                                index,
-                                "keterangan_2",
-                                event.target.value
-                              )
-                            }
-                            placeholder="Keterangan bagian kedua..."
-                            className={`${inputClass} resize-y`}
-                            disabled={loading}
-                          />
-                        </div>
-
-                        {/* KETERANGAN 3 */}
-                        <div>
-                          <label
-                            htmlFor={`keterangan-3-${index}`}
-                            className={labelClass}
-                          >
-                            Keterangan 3
-                          </label>
-
-                          <textarea
-                            id={`keterangan-3-${index}`}
-                            rows={5}
-                            value={item.keterangan_3}
-                            onChange={(event) =>
-                              updateItem(
-                                index,
-                                "keterangan_3",
-                                event.target.value
-                              )
-                            }
-                            placeholder="Keterangan bagian ketiga..."
-                            className={`${inputClass} resize-y`}
-                            disabled={loading}
-                          />
-                        </div>
                       </div>
                     </div>
                   </div>

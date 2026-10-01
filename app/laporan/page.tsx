@@ -12,6 +12,13 @@ type Recommendation = {
   follow_up_status: string;
   saldo_status: string;
   description: string | null;
+  no_temuan?: string | null;
+  judul?: string | null;
+  rencana_aksi?: string | null;
+  keterangan_bukti_dukung?: string | null;
+  waktu_pelaksanaan?: string | null;
+  uic?: string | null;
+  tindak_lanjut?: string | null;
 };
 
 export default function LaporanPage() {
@@ -93,7 +100,13 @@ export default function LaporanPage() {
         item.lha_number.toLowerCase().includes(keyword) ||
         item.category.toLowerCase().includes(keyword) ||
         item.source.toLowerCase().includes(keyword) ||
-        (item.description || "").toLowerCase().includes(keyword);
+        (item.description || "").toLowerCase().includes(keyword) ||
+        (item.no_temuan || "").toLowerCase().includes(keyword) ||
+        (item.judul || "").toLowerCase().includes(keyword) ||
+        (item.rencana_aksi || "").toLowerCase().includes(keyword) ||
+        (item.keterangan_bukti_dukung || "").toLowerCase().includes(keyword) ||
+        (item.uic || "").toLowerCase().includes(keyword) ||
+        (item.tindak_lanjut || "").toLowerCase().includes(keyword);
 
       return (
         matchesDate &&
@@ -870,7 +883,7 @@ export default function LaporanPage() {
 
             <input
               type="text"
-              placeholder="Cari nomor LHA..."
+              placeholder="Cari LHA, No Temuan, Judul, UIC, Tindak Lanjut..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-medium text-black placeholder:text-slate-400 outline-none transition focus:border-[#D4A72C] focus:bg-white sm:w-64"
@@ -1157,16 +1170,88 @@ export default function LaporanPage() {
                 </div>
               </div>
 
-              {/* KETERANGAN */}
+              {/* DETAIL REKOMENDASI */}
 
-              <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-5">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Keterangan
-                </p>
+              <div className="space-y-4">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Detail Rekomendasi
+                  </p>
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    Informasi temuan dan tindak lanjut rekomendasi.
+                  </p>
+                </div>
 
-                <p className="mt-3 text-xs leading-6 text-slate-600">
-                  {selected.description || "Tidak ada keterangan."}
-                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {/* NO TEMUAN */}
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <p className="text-[10px] text-slate-400">No Temuan</p>
+
+                    <p className="mt-2 text-xs font-semibold text-slate-700">
+                      {selected.no_temuan || "-"}
+                    </p>
+                  </div>
+
+                  {/* JUDUL */}
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <p className="text-[10px] text-slate-400">Judul</p>
+
+                    <p className="mt-2 text-xs font-semibold leading-5 text-slate-700">
+                      {selected.judul || "-"}
+                    </p>
+                  </div>
+
+                  {/* RENCANA AKSI */}
+                  <div className="rounded-xl border border-slate-200 bg-white p-4 sm:col-span-2">
+                    <p className="text-[10px] text-slate-400">Rencana Aksi</p>
+
+                    <p className="mt-2 text-xs leading-6 text-slate-600">
+                      {selected.rencana_aksi || "-"}
+                    </p>
+                  </div>
+
+                  {/* KETERANGAN / BUKTI DUKUNG */}
+                  <div className="rounded-xl border border-slate-200 bg-white p-4 sm:col-span-2">
+                    <p className="text-[10px] text-slate-400">
+                      Keterangan / Bukti Dukung
+                    </p>
+
+                    <p className="mt-2 text-xs leading-6 text-slate-600">
+                      {selected.keterangan_bukti_dukung || "-"}
+                    </p>
+                  </div>
+
+                  {/* WAKTU PELAKSANAAN */}
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <p className="text-[10px] text-slate-400">
+                      Waktu Pelaksanaan
+                    </p>
+
+                    <p className="mt-2 text-xs font-semibold text-slate-700">
+                      {selected.waktu_pelaksanaan
+                        ? formatDate(selected.waktu_pelaksanaan)
+                        : "-"}
+                    </p>
+                  </div>
+
+                  {/* UIC */}
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <p className="text-[10px] text-slate-400">UIC</p>
+
+                    <p className="mt-2 text-xs font-semibold text-slate-700">
+                      {selected.uic || "-"}
+                    </p>
+                  </div>
+
+                  {/* TINDAK LANJUT */}
+                  <div className="rounded-xl border border-slate-200 bg-white p-4 sm:col-span-2">
+                    <p className="text-[10px] text-slate-400">Tindak Lanjut</p>
+
+                    <p className="mt-2 text-xs leading-6 text-slate-600">
+                      {selected.tindak_lanjut || "-"}
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </aside>

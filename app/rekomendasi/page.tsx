@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 import RecommendationForm from "@/components/RecommendationForm";
-import ImportDocumentModal from "@/components/ImportDocumentModal";
 
 type Recommendation = {
   id: number;
@@ -23,6 +22,16 @@ type Recommendation = {
   keterangan_1?: string | null;
   keterangan_2?: string | null;
   keterangan_3?: string | null;
+
+  // Kolom revisi
+  no_temuan?: string | null;
+  judul?: string | null;
+  rencana_aksi?: string | null;
+  keterangan_bukti_dukung?: string | null;
+  waktu_pelaksanaan?: string | null;
+  uic?: string | null;
+  tindak_lanjut?: string | null;
+
   created_at?: string;
 };
 
@@ -58,7 +67,19 @@ type LhpFolder = {
   items: Recommendation[];
   capaian: number;
 };
-
+type DocumentFile = {
+  id: number;
+  recommendation_id: number | null;
+  source: string;
+  lha_number: string;
+  lha_date: string | null;
+  file_name: string;
+  file_url: string;
+  file_type: string | null;
+  file_size: number | null;
+  document_scope: "FOLDER" | "RECOMMENDATION";
+  created_at: string;
+};
 const EMPTY_SUMMARY: Summary = {
   total: 0,
   belumTl: 0,
@@ -209,6 +230,8 @@ export default function RekomendasiPage() {
 
   // Capaian keseluruhan manual yang disimpan di database
   const [manualCapaian, setManualCapaian] = useState(0);
+  const [automaticCapaian, setAutomaticCapaian] = useState(0);
+  const [indeksCapaian, setIndeksCapaian] = useState(0);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -224,8 +247,6 @@ export default function RekomendasiPage() {
   const [editing, setEditing] = useState<Recommendation | null>(null);
 
   const [detailFolder, setDetailFolder] = useState<LhpFolder | null>(null);
-
-  const [showImport, setShowImport] = useState(false);
 
   // Modal edit capaian keseluruhan
   const [showCapaianModal, setShowCapaianModal] = useState(false);
@@ -335,7 +356,17 @@ export default function RekomendasiPage() {
             0
         );
 
+        const automaticValue = Number(capaianJson?.data?.capaian_otomatis ?? 0);
+
+        const indeksValue = Number(capaianJson?.data?.indeks_capaian ?? 0);
+
         setManualCapaian(Math.max(0, Math.min(100, Number(manualValue) || 0)));
+
+        setAutomaticCapaian(
+          Math.max(0, Math.min(1, Number(automaticValue) || 0))
+        );
+
+        setIndeksCapaian(Math.max(0, Math.min(1.2, Number(indeksValue) || 0)));
       } else {
         const capaianError = await readApiJson(capaianResponse);
 
@@ -378,7 +409,13 @@ export default function RekomendasiPage() {
         item.description?.toLowerCase().includes(keyword) ||
         item.keterangan_1?.toLowerCase().includes(keyword) ||
         item.keterangan_2?.toLowerCase().includes(keyword) ||
-        item.keterangan_3?.toLowerCase().includes(keyword);
+        item.keterangan_3?.toLowerCase().includes(keyword) ||
+        item.no_temuan?.toLowerCase().includes(keyword) ||
+        item.judul?.toLowerCase().includes(keyword) ||
+        item.rencana_aksi?.toLowerCase().includes(keyword) ||
+        item.keterangan_bukti_dukung?.toLowerCase().includes(keyword) ||
+        item.uic?.toLowerCase().includes(keyword) ||
+        item.tindak_lanjut?.toLowerCase().includes(keyword);
 
       const matchesSource = source === "ALL" || item.source === source;
 
@@ -442,13 +479,6 @@ export default function RekomendasiPage() {
       };
     });
   }, [filteredData]);
-
-  /*
-   * CAPAIAN OTOMATIS SEMUA REKOMENDASI
-   */
-  const automaticCapaian = useMemo(() => {
-    return Number(summary.capaian) || 0;
-  }, [summary.capaian]);
 
   /*
    * CAPAIAN OTOMATIS SESUAI FILTER
@@ -687,14 +717,6 @@ export default function RekomendasiPage() {
             <div className="flex flex-wrap gap-3">
               <button
                 type="button"
-                onClick={() => setShowImport(true)}
-                className="rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-semibold transition hover:bg-white/20"
-              >
-                Import Dokumen
-              </button>
-
-              <button
-                type="button"
                 onClick={openAddForm}
                 className="rounded-xl bg-white px-4 py-3 text-sm font-bold text-slate-900 shadow-lg transition hover:bg-slate-100"
               >
@@ -754,9 +776,7 @@ export default function RekomendasiPage() {
           {/* CAPAIAN OTOMATIS */}
           <KpiCard
             title="Capaian"
-            value={formatPercent(
-              data.length > 0 ? automaticCapaian : summary.capaian
-            )}
+            value={formatPercent(automaticCapaian * 100)}
             description="Hasil perhitungan Sistem"
             icon="📈"
           />
@@ -861,7 +881,7 @@ export default function RekomendasiPage() {
                 type="text"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Cari LHA, temuan, rekomendasi..."
+                placeholder="Cari LHA, No Temuan, Judul, UIC, tindak lanjut..."
                 className={inputClass}
               />
             </div>
@@ -1222,6 +1242,13 @@ export default function RekomendasiPage() {
                   <ProgressBar value={detailFolder.capaian} />
                 </div>
               </div>
+              {/* DOKUMEN FOLDER */}
+              <DocumentManager
+                scope="FOLDER"
+                source={detailFolder.source}
+                lhaNumber={detailFolder.lha_number}
+                lhaDate={detailFolder.lha_date}
+              />
 
               {/* DAFTAR REKOMENDASI */}
               <div>
@@ -1280,28 +1307,34 @@ export default function RekomendasiPage() {
                       </div>
 
                       <div className="space-y-4">
-                        <DetailBox title="Temuan" value={item.temuan} />
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                          <DetailBox title="No Temuan" value={item.no_temuan} />
 
-                        <DetailBox
-                          title="Rekomendasi"
-                          value={item.recommendation}
-                        />
+                          <DetailBox title="Judul" value={item.judul} />
 
-                        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                           <DetailBox
-                            title="Keterangan 1"
-                            value={item.keterangan_1}
+                            title="Rencana Aksi"
+                            value={item.rencana_aksi}
                           />
 
                           <DetailBox
-                            title="Keterangan 2"
-                            value={item.keterangan_2}
+                            title="Keterangan / Bukti Dukung"
+                            value={item.keterangan_bukti_dukung}
                           />
 
                           <DetailBox
-                            title="Keterangan 3"
-                            value={item.keterangan_3}
+                            title="Waktu Pelaksanaan"
+                            value={formatDate(item.waktu_pelaksanaan || "")}
                           />
+
+                          <DetailBox title="UIC" value={item.uic} />
+
+                          <div className="md:col-span-2">
+                            <DetailBox
+                              title="Tindak Lanjut"
+                              value={item.tindak_lanjut}
+                            />
+                          </div>
                         </div>
 
                         {/* CAPAIAN REKOMENDASI */}
@@ -1324,6 +1357,14 @@ export default function RekomendasiPage() {
 
                           <ProgressBar value={item.capaian} />
                         </div>
+                        {/* DOKUMEN REKOMENDASI */}
+                        <DocumentManager
+                          scope="RECOMMENDATION"
+                          source={detailFolder.source}
+                          lhaNumber={detailFolder.lha_number}
+                          lhaDate={detailFolder.lha_date}
+                          recommendationId={item.id}
+                        />
 
                         {/* AKSI */}
                         <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4">
@@ -1420,17 +1461,6 @@ export default function RekomendasiPage() {
             </div>
           </div>
         </div>
-      )}
-
-      {/* IMPORT */}
-      {showImport && (
-        <ImportDocumentModal
-          onClose={() => setShowImport(false)}
-          onImported={() => {
-            setShowImport(false);
-            loadData(true);
-          }}
-        />
       )}
     </main>
   );
@@ -1627,6 +1657,299 @@ function EmptyState({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+function DocumentManager({
+  scope,
+  source,
+  lhaNumber,
+  lhaDate,
+  recommendationId,
+}: {
+  scope: "FOLDER" | "RECOMMENDATION";
+  source: string;
+  lhaNumber: string;
+  lhaDate?: string | null;
+  recommendationId?: number;
+}) {
+  const [documents, setDocuments] = useState<DocumentFile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+
+  const loadDocuments = useCallback(async () => {
+    try {
+      setLoading(true);
+
+      const params = new URLSearchParams();
+
+      params.set("scope", scope);
+
+      if (scope === "RECOMMENDATION" && recommendationId) {
+        params.set("recommendationId", String(recommendationId));
+      }
+
+      if (scope === "FOLDER") {
+        params.set("source", source);
+        params.set("lhaNumber", lhaNumber);
+
+        if (lhaDate) {
+          params.set("lhaDate", lhaDate);
+        }
+      }
+
+      const response = await fetch(`/api/documents?${params.toString()}`, {
+        cache: "no-store",
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.error || "Gagal mengambil dokumen");
+      }
+
+      setDocuments(Array.isArray(result) ? result : []);
+    } catch (error) {
+      console.error("Load documents error:", error);
+      setDocuments([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [scope, source, lhaNumber, lhaDate, recommendationId]);
+
+  useEffect(() => {
+    loadDocuments();
+  }, [loadDocuments]);
+
+  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    const allowedExtensions = [
+      "pdf",
+      "doc",
+      "docx",
+      "xls",
+      "xlsx",
+      "ppt",
+      "pptx",
+    ];
+
+    const extension = file.name.split(".").pop()?.toLowerCase();
+
+    if (!extension || !allowedExtensions.includes(extension)) {
+      alert(
+        "Format file tidak diperbolehkan.\n\nGunakan: PDF, DOC, DOCX, XLS, XLSX, PPT, atau PPTX."
+      );
+
+      event.target.value = "";
+      return;
+    }
+
+    if (file.size > 20 * 1024 * 1024) {
+      alert("Ukuran file maksimal 20 MB.");
+      event.target.value = "";
+      return;
+    }
+
+    try {
+      setUploading(true);
+
+      const formData = new FormData();
+
+      formData.append("file", file);
+      formData.append("source", source);
+      formData.append("lhaNumber", lhaNumber);
+      formData.append("documentScope", scope);
+
+      if (lhaDate) {
+        formData.append("lhaDate", lhaDate);
+      }
+
+      if (scope === "RECOMMENDATION" && recommendationId) {
+        formData.append("recommendationId", String(recommendationId));
+      }
+
+      const response = await fetch("/api/documents", {
+        method: "POST",
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.error || "Gagal mengupload dokumen");
+      }
+
+      await loadDocuments();
+
+      alert("Dokumen berhasil diupload.");
+    } catch (error) {
+      console.error("Upload document error:", error);
+
+      alert(
+        error instanceof Error ? error.message : "Gagal mengupload dokumen."
+      );
+    } finally {
+      setUploading(false);
+      event.target.value = "";
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    const confirmed = window.confirm(
+      "Apakah Anda yakin ingin menghapus dokumen ini?"
+    );
+
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch("/api/documents", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ id }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.error || "Gagal menghapus dokumen");
+      }
+
+      await loadDocuments();
+    } catch (error) {
+      console.error("Delete document error:", error);
+
+      alert(
+        error instanceof Error ? error.message : "Gagal menghapus dokumen."
+      );
+    }
+  };
+
+  const formatFileSize = (size: number | null) => {
+    if (!size) return "-";
+
+    if (size < 1024) {
+      return `${size} B`;
+    }
+
+    if (size < 1024 * 1024) {
+      return `${(size / 1024).toFixed(1)} KB`;
+    }
+
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  return (
+    <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="text-lg">📎</span>
+
+            <h4 className="text-sm font-semibold text-slate-800">
+              {scope === "FOLDER"
+                ? "Dokumen Folder / LHP"
+                : "Dokumen Rekomendasi"}
+            </h4>
+          </div>
+
+          <p className="mt-1 text-xs text-slate-500">
+            Upload dokumen pendukung secara opsional.
+          </p>
+        </div>
+
+        <label
+          className={`inline-flex cursor-pointer items-center justify-center rounded-xl px-3 py-2 text-xs font-semibold text-white transition ${
+            uploading
+              ? "cursor-not-allowed bg-slate-400"
+              : "bg-slate-800 hover:bg-slate-700"
+          }`}
+        >
+          {uploading ? "Mengupload..." : "+ Upload Dokumen"}
+
+          <input
+            type="file"
+            className="hidden"
+            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+            onChange={handleUpload}
+            disabled={uploading}
+          />
+        </label>
+      </div>
+
+      {loading ? (
+        <div className="py-4 text-center text-xs text-slate-500">
+          Memuat dokumen...
+        </div>
+      ) : documents.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-5 text-center">
+          <div className="text-2xl">📄</div>
+
+          <p className="mt-2 text-xs font-medium text-slate-600">
+            Belum ada dokumen
+          </p>
+
+          <p className="mt-1 text-[11px] text-slate-400">
+            Dokumen dapat diupload kapan saja.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {documents.map((document) => (
+            <div
+              key={document.id}
+              className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-sm font-bold uppercase text-slate-600">
+                  {document.file_type || "DOC"}
+                </div>
+
+                <div className="min-w-0">
+                  <p
+                    className="truncate text-sm font-medium text-slate-700"
+                    title={document.file_name}
+                  >
+                    {document.file_name}
+                  </p>
+
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    {formatFileSize(document.file_size)} •{" "}
+                    {new Date(document.created_at).toLocaleDateString("id-ID")}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex shrink-0 items-center gap-2">
+                <a
+                  href={document.file_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  Buka
+                </a>
+
+                <button
+                  type="button"
+                  onClick={() => handleDelete(document.id)}
+                  className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50"
+                >
+                  Hapus
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <p className="mt-3 text-[10px] text-slate-400">
+        Format: PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX • Maksimal 20 MB
+      </p>
     </div>
   );
 }

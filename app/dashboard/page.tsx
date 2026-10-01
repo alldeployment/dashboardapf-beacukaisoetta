@@ -46,7 +46,11 @@ type Recommendation = {
 export default function DashboardPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
-
+  const [capaianData, setCapaianData] = useState<{
+    capaian_manual: number;
+    capaian_otomatis: number;
+    indeks_capaian: number;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -55,18 +59,21 @@ export default function DashboardPage() {
       setLoading(true);
       setError("");
 
-      const [summaryRes, recommendationRes] = await Promise.all([
+      const [summaryRes, recommendationRes, capaianRes] = await Promise.all([
         fetch("/api/dashboard/summary", {
           cache: "no-store",
         }),
-
         fetch("/api/recommendations", {
+          cache: "no-store",
+        }),
+        fetch("/api/dashboard/capaian", {
           cache: "no-store",
         }),
       ]);
 
       const summaryJson = await summaryRes.json();
       const recommendationJson = await recommendationRes.json();
+      const capaianJson = await capaianRes.json();
 
       if (!summaryRes.ok || !summaryJson?.ok) {
         throw new Error(
@@ -82,6 +89,7 @@ export default function DashboardPage() {
 
       setSummary(summaryJson.data ?? null);
       setRecommendations(recommendationJson.data ?? []);
+      setCapaianData(capaianJson.data ?? null);
     } catch (err) {
       console.error("DASHBOARD ERROR:", err);
 
@@ -146,9 +154,6 @@ export default function DashboardPage() {
       case "SUDAH_TL":
         return "Sudah TL";
 
-      case "BELUM_TUNTAS":
-        return "Sudah TL";
-
       case "BELUM_TL":
         return "Belum TL";
 
@@ -161,10 +166,6 @@ export default function DashboardPage() {
     switch (status) {
       case "SUDAH_TUNTAS":
         return "bg-green-50 text-green-700 border-green-200";
-
-      case "SUDAH_TL":
-      case "BELUM_TUNTAS":
-        return "bg-amber-50 text-amber-700 border-amber-200";
 
       case "BELUM_TL":
         return "bg-red-50 text-red-700 border-red-200";
@@ -184,7 +185,12 @@ export default function DashboardPage() {
   const belumTl = safeNumber(summary?.belumTl);
   const sudahTl = safeNumber(summary?.sudahTl);
   const sudahTuntas = safeNumber(summary?.sudahTuntas);
+  const capaianOtomatis = safeNumber(capaianData?.capaian_otomatis);
 
+  const capaianPersen = Math.min(
+    100,
+    Math.max(0, Math.round(capaianOtomatis * 100))
+  );
   /*
   ============================================================
   BPK
@@ -399,7 +405,42 @@ export default function DashboardPage() {
             </div>
           </div>
         </section>
+        {/* CAPAIAN KESELURUHAN */}
 
+        <section className="mb-6">
+          <div className="rounded-2xl border border-white/10 bg-white/95 p-6 shadow-xl">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#9B7518]">
+                  Capaian Keseluruhan
+                </p>
+
+                <h2 className="mt-1 text-xl font-bold text-[#071426]">
+                  Indeks Capaian Tindak Lanjut
+                </h2>
+
+                <p className="mt-2 text-sm text-slate-400">
+                  Perhitungan berdasarkan bobot tindak lanjut rekomendasi.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-5">
+                <div className="h-4 w-56 overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className="h-full rounded-full bg-[#D4A72C] transition-all"
+                    style={{
+                      width: `${capaianPersen}%`,
+                    }}
+                  />
+                </div>
+
+                <span className="min-w-[80px] text-right text-3xl font-bold text-[#071426]">
+                  {loading ? "—" : `${capaianPersen}%`}
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
         {/* BPK */}
 
         <section className="mb-6">

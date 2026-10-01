@@ -46,16 +46,22 @@ export async function GET(request: NextRequest) {
     const result = await pool.query(
       `
       SELECT
-        id,
-        source,
-        category,
-        lha_number,
-        lha_date,
-        recommendation_count,
-        follow_up_status,
-        saldo_status,
-        description
-      FROM recommendations
+      id,
+      source,
+      category,
+      lha_number,
+      lha_date,
+      recommendation_count,
+      follow_up_status,
+      saldo_status,
+      no_temuan,
+      judul,
+      rencana_aksi,
+      keterangan_bukti_dukung,
+      waktu_pelaksanaan,
+      uic,
+      tindak_lanjut
+    FROM recommendations
       ${whereClause}
       ORDER BY lha_date ASC, id ASC
       `,
@@ -70,44 +76,59 @@ export async function GET(request: NextRequest) {
       Tanggal: item.lha_date
         ? new Date(item.lha_date).toLocaleDateString("id-ID")
         : "",
+
+      "No Temuan": item.no_temuan || "",
+      Judul: item.judul || "",
+      "Rencana Aksi": item.rencana_aksi || "",
+      "Keterangan / Bukti Dukung": item.keterangan_bukti_dukung || "",
+
+      "Waktu Pelaksanaan": item.waktu_pelaksanaan
+        ? new Date(item.waktu_pelaksanaan).toLocaleDateString("id-ID")
+        : "",
+
+      UIC: item.uic || "",
+      "Tindak Lanjut": item.tindak_lanjut || "",
+
       "Saldo (Rek.)":
         item.saldo_status === "MASUK_SALDO"
           ? Number(item.recommendation_count)
           : 0,
+
       "Belum Tindak Lanjut":
         item.follow_up_status === "BELUM_TL"
           ? Number(item.recommendation_count)
           : 0,
-      "TL Belum Tuntas":
-        item.follow_up_status === "BELUM_TUNTAS"
-          ? Number(item.recommendation_count)
-          : 0,
+
       "TL Sudah Tuntas":
         item.follow_up_status === "SUDAH_TUNTAS"
           ? Number(item.recommendation_count)
           : 0,
+
       "Status Saldo": item.saldo_status,
       "Status Tindak Lanjut": item.follow_up_status,
-      Keterangan: item.description || "",
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(rows);
 
     worksheet["!cols"] = [
-      { wch: 6 },
-      { wch: 10 },
-      { wch: 28 },
-      { wch: 35 },
-      { wch: 18 },
-      { wch: 15 },
-      { wch: 22 },
-      { wch: 18 },
-      { wch: 18 },
-      { wch: 20 },
-      { wch: 25 },
-      { wch: 40 },
+      { wch: 6 }, // No
+      { wch: 10 }, // APF
+      { wch: 28 }, // Kategori
+      { wch: 35 }, // LHA / LHP
+      { wch: 18 }, // Tanggal
+      { wch: 15 }, // No Temuan
+      { wch: 35 }, // Judul
+      { wch: 40 }, // Rencana Aksi
+      { wch: 45 }, // Bukti Dukung
+      { wch: 20 }, // Waktu Pelaksanaan
+      { wch: 15 }, // UIC
+      { wch: 40 }, // Tindak Lanjut
+      { wch: 15 }, // Saldo
+      { wch: 22 }, // Belum TL
+      { wch: 18 }, // TL Sudah Tuntas
+      { wch: 20 }, // Status Saldo
+      { wch: 25 }, // Status Tindak Lanjut
     ];
-
     const workbook = XLSX.utils.book_new();
 
     XLSX.utils.book_append_sheet(workbook, worksheet, "Rekap APF");

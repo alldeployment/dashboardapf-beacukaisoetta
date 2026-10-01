@@ -3,8 +3,8 @@ import { pool } from "@/lib/db";
 
 const WEIGHTS = {
   BELUM_TL: 0,
-  TL_BELUM_TUNTAS: 70,
-  TL_SUDAH_TUNTAS: 100,
+  TL_BELUM_TUNTAS: 0.7,
+  TL_SUDAH_TUNTAS: 1,
 };
 
 export async function GET() {
@@ -28,7 +28,7 @@ export async function GET() {
 
     const result = await pool.query(`
       SELECT
-        COALESCE(SUM(recommendation_count), 0)::int AS total,
+      COUNT(*)::int AS total,
 
         COALESCE(
           SUM(recommendation_count)
