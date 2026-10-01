@@ -185,7 +185,9 @@ export default function DashboardPage() {
   const belumTl = safeNumber(summary?.belumTl);
   const sudahTl = safeNumber(summary?.sudahTl);
   const sudahTuntas = safeNumber(summary?.sudahTuntas);
-  const capaianOtomatis = safeNumber(capaianData?.capaian_otomatis);
+  const capaianOtomatis = safeNumber(
+    capaianData?.capaian_otomatis ?? summary?.capaian
+  );
 
   const capaianPersen = Math.min(
     100,
