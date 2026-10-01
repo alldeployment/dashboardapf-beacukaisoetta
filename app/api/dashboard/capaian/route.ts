@@ -87,35 +87,23 @@ export async function GET() {
      * H = TL Sudah Tuntas
      */
     const summaryResult = await pool.query(`
-  SELECT
-    COALESCE(SUM(recommendation_count), 0)::int AS saldo,
-
-    COALESCE(
-      SUM(recommendation_count)
-      FILTER (
+    SELECT
+      COUNT(*)::int AS saldo,
+  
+      COUNT(*) FILTER (
         WHERE follow_up_status = 'BELUM_TL'
-      ),
-      0
-    )::int AS belum_tl,
-
-    COALESCE(
-      SUM(recommendation_count)
-      FILTER (
+      )::int AS belum_tl,
+  
+      COUNT(*) FILTER (
         WHERE follow_up_status = 'SUDAH_TL'
-      ),
-      0
-    )::int AS tl_belum_tuntas,
-
-    COALESCE(
-      SUM(recommendation_count)
-      FILTER (
+      )::int AS tl_belum_tuntas,
+  
+      COUNT(*) FILTER (
         WHERE follow_up_status = 'SUDAH_TUNTAS'
-      ),
-      0
-    )::int AS tl_sudah_tuntas
-
-  FROM recommendations
-`);
+      )::int AS tl_sudah_tuntas
+  
+    FROM recommendations
+  `);
 
     const summary = summaryResult.rows[0];
 
