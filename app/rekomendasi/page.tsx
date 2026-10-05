@@ -751,28 +751,24 @@ export default function RekomendasiPage() {
             description={`${groupedFolders.length} folder LHP/LHA`}
             icon="📋"
           />
-
           <KpiCard
             title="Belum TL"
             value={summary.belumTl || filteredStats.belumTl}
             description="Masih membutuhkan tindak lanjut"
             icon="⏳"
           />
-
           <KpiCard
             title="Sudah TL"
             value={summary.sudahTl || filteredStats.sudahTl}
             description="Sudah dilakukan tindak lanjut"
             icon="🔄"
           />
-
           <KpiCard
             title="Sudah Tuntas"
             value={summary.sudahTuntas || filteredStats.sudahTuntas}
             description="Rekomendasi telah tuntas"
             icon="✅"
           />
-
           {/* CAPAIAN OTOMATIS */}
           <KpiCard
             title="Capaian"
@@ -780,13 +776,18 @@ export default function RekomendasiPage() {
             description="Hasil perhitungan Sistem"
             icon="📈"
           />
-
-          {/* CAPAIAN MANUAL */}
+          {/* INDEKS CAPAIAN KESELURUHAN */}
           <KpiCard
-            title="Capaian"
+            title="Indeks Capaian"
             value={
               <div className="flex items-center gap-2">
-                <span>{formatPercent(manualCapaian)}</span>
+                <span>
+                  {formatPercent(
+                    manualCapaian > 0
+                      ? Math.min((manualCapaian / 62) * 100, 120)
+                      : indeksCapaian * 100
+                  )}
+                </span>
 
                 <button
                   type="button"
@@ -797,9 +798,10 @@ export default function RekomendasiPage() {
                 </button>
               </div>
             }
-            description="Nilai keseluruhan"
+            description="Indeks capaian keseluruhan"
             icon="🎯"
           />
+          ```
         </section>
 
         {/* BPK + ITJEN */}
