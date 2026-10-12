@@ -106,16 +106,12 @@ async function getSummary() {
 export async function GET() {
   try {
     const cek = await pool.query(`
-  SELECT
-    current_database() AS database_name,
-    current_schema() AS schema_name,
-    to_regclass('public.pengaturan_rumus_capaian')
-      AS tabel_rumus,
-    to_regclass('public.dashboard_capaian')
-      AS tabel_capaian,
-    to_regclass('public.recommendations')
-      AS tabel_rekomendasi
-`);
+    SELECT
+      current_database() AS database_name,
+      current_schema() AS schema_name,
+      to_regclass('public.dashboard_capaian') AS tabel_capaian,
+      to_regclass('public.pengaturan_rumus_capaian') AS tabel_rumus
+  `);
 
     console.log("CEK DATABASE CAPAIAN:", cek.rows[0]);
     const [saved, rumusTersimpan, summary] = await Promise.all([
