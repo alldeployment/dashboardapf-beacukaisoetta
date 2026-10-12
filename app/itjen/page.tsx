@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import RecommendationForm from "@/components/RecommendationForm";
 
 type Recommendation = {
   id: number;
@@ -8,10 +9,26 @@ type Recommendation = {
   category: string;
   lha_number: string;
   lha_date: string;
+
+  recommendation_number?: number | string | null;
   recommendation_count: number;
+
   follow_up_status: string;
   saldo_status: string;
   description: string | null;
+
+  temuan?: string | null;
+  recommendation?: string | null;
+
+  no_temuan?: string | null;
+  judul?: string | null;
+  rencana_aksi?: string | null;
+  keterangan_bukti_dukung?: string | null;
+  waktu_pelaksanaan?: string | null;
+  uic?: string | null;
+  tindak_lanjut?: string | null;
+
+  created_at?: string;
 };
 
 type Summary = {
@@ -23,6 +40,7 @@ type Summary = {
 
 export default function ItjenPage() {
   const [data, setData] = useState<Recommendation[]>([]);
+
   const [summary, setSummary] = useState<Summary>({
     total: 0,
     selesai: 0,
@@ -35,8 +53,13 @@ export default function ItjenPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [categoryFilter, setCategoryFilter] = useState("ALL");
+
   const [selected, setSelected] = useState<Recommendation | null>(null);
+
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<Recommendation | null>(null);
 
   /* ========================================================= */
   /* LOAD DATA */
@@ -63,11 +86,21 @@ export default function ItjenPage() {
       const recommendationJson = await recommendationRes.json();
       const summaryJson = await summaryRes.json();
 
+      /* ===================================================== */
+      /* DATA ITJEN */
+      /* 1 BARIS = 1 REKOMENDASI */
+      /* ===================================================== */
+
       const itjenData = (recommendationJson.data || []).filter(
         (item: Recommendation) => item.source === "ITJEN"
       );
 
-      setData(itjenData);
+      const normalizedItjenData = itjenData.map((item: Recommendation) => ({
+        ...item,
+        recommendation_number: item.recommendation_number,
+      }));
+
+      setData(normalizedItjenData);
 
       if (summaryJson?.data?.itjen) {
         setSummary({
@@ -78,13 +111,14 @@ export default function ItjenPage() {
         });
       } else {
         /* fallback jika summary Itjen belum tersedia */
-        const total = itjenData.reduce(
+
+        const total = normalizedItjenData.reduce(
           (sum: number, item: Recommendation) =>
             sum + Number(item.recommendation_count || 0),
           0
         );
 
-        const selesai = itjenData
+        const selesai = normalizedItjenData
           .filter(
             (item: Recommendation) => item.follow_up_status === "SUDAH_TUNTAS"
           )
@@ -94,7 +128,7 @@ export default function ItjenPage() {
             0
           );
 
-        const proses = itjenData
+        const proses = normalizedItjenData
           .filter(
             (item: Recommendation) => item.follow_up_status === "BELUM_TUNTAS"
           )
@@ -104,7 +138,7 @@ export default function ItjenPage() {
             0
           );
 
-        const belum = itjenData
+        const belum = normalizedItjenData
           .filter(
             (item: Recommendation) => item.follow_up_status === "BELUM_TL"
           )
@@ -134,7 +168,48 @@ export default function ItjenPage() {
   useEffect(() => {
     loadData();
   }, []);
+  function editData(item: Recommendation) {
+    if (item.follow_up_status === "SUDAH_TUNTAS") {
+      alert("Data yang sudah tuntas tidak dapat diedit.");
+      return;
+    }
 
+    setSelected(null);
+    setEditing(item);
+    setShowForm(true);
+  }
+
+  function closeForm() {
+    setShowForm(false);
+    setEditing(null);
+  }
+
+  async function deleteData(item: Recommendation) {
+    const confirmed = window.confirm(
+      `Hapus rekomendasi ${item.lha_number}? Data yang dihapus tidak dapat dikembalikan.`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch(`/api/recommendations?id=${item.id}`, {
+        method: "DELETE",
+      });
+
+      const json = await response.json();
+
+      if (!response.ok) {
+        throw new Error(json?.message || "Gagal menghapus data.");
+      }
+
+      setSelected(null);
+      await loadData();
+    } catch (error) {
+      console.error(error);
+
+      alert(error instanceof Error ? error.message : "Gagal menghapus data.");
+    }
+  }
   /* ========================================================= */
   /* FILTER */
   /* ========================================================= */
@@ -268,8 +343,6 @@ export default function ItjenPage() {
         <div className="relative mx-auto max-w-[1600px] px-6 py-9 lg:px-10 lg:py-10">
           <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              {/* LOGO / SOURCE */}
-
               <div className="mb-5 flex items-center gap-4">
                 <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#D4A72C]/50 bg-[#071426] text-lg font-bold text-[#D4A72C]">
                   I
@@ -295,8 +368,6 @@ export default function ItjenPage() {
                 Inspektorat Jenderal pada Bea Cukai Soekarno-Hatta.
               </p>
             </div>
-
-            {/* HERO ACTION */}
 
             <div className="flex items-center gap-3">
               <div className="flex h-14 items-center gap-3 rounded-xl border border-slate-700 bg-[#0b1b30]/80 px-5">
@@ -341,8 +412,6 @@ export default function ItjenPage() {
       {/* ===================================================== */}
 
       <div className="mx-auto max-w-[1600px] space-y-7 px-6 py-8 lg:px-10">
-        {/* ERROR */}
-
         {error && (
           <div className="flex items-center justify-between gap-4 rounded-xl border border-red-200 bg-red-50 px-5 py-4">
             <div className="flex items-center gap-3">
@@ -373,8 +442,6 @@ export default function ItjenPage() {
         {/* =================================================== */}
 
         <section className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
-          {/* TOTAL */}
-
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg">
             <div className="flex items-start justify-between">
               <div>
@@ -394,12 +461,8 @@ export default function ItjenPage() {
 
             <div className="mt-7 flex items-center justify-between text-xs">
               <span className="text-slate-400">Seluruh rekomendasi</span>
-
-              <span className="font-bold text-[#071426]">2026</span>
             </div>
           </div>
-
-          {/* SUDAH TUNTAS */}
 
           <div className="rounded-2xl border border-green-100 bg-gradient-to-br from-white to-green-50/40 p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg">
             <div className="flex items-start justify-between">
@@ -448,8 +511,6 @@ export default function ItjenPage() {
             </div>
           </div>
 
-          {/* BELUM TUNTAS */}
-
           <div className="rounded-2xl border border-amber-100 bg-gradient-to-br from-white to-amber-50/40 p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg">
             <div className="flex items-start justify-between">
               <div>
@@ -497,8 +558,6 @@ export default function ItjenPage() {
             </div>
           </div>
 
-          {/* CAPAIAN */}
-
           <div className="rounded-2xl border border-[#D4A72C]/20 bg-gradient-to-br from-white to-[#D4A72C]/5 p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg">
             <div className="flex items-start justify-between">
               <div>
@@ -533,8 +592,6 @@ export default function ItjenPage() {
         {/* =================================================== */}
 
         <section className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          {/* ANALISIS */}
-
           <div className="rounded-2xl border border-slate-200 bg-white p-7 shadow-sm lg:col-span-2">
             <div className="flex items-start justify-between">
               <div>
@@ -556,11 +613,7 @@ export default function ItjenPage() {
               </span>
             </div>
 
-            {/* PROGRESS */}
-
             <div className="mt-8 space-y-6">
-              {/* TUNTAS */}
-
               <div>
                 <div className="mb-2 flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -589,8 +642,6 @@ export default function ItjenPage() {
                 </div>
               </div>
 
-              {/* PROSES */}
-
               <div>
                 <div className="mb-2 flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -618,8 +669,6 @@ export default function ItjenPage() {
                   />
                 </div>
               </div>
-
-              {/* BELUM TL */}
 
               <div>
                 <div className="mb-2 flex items-center justify-between">
@@ -650,8 +699,6 @@ export default function ItjenPage() {
               </div>
             </div>
 
-            {/* MINI SUMMARY */}
-
             <div className="mt-8 grid grid-cols-3 gap-3">
               <div className="rounded-xl bg-green-50 p-4">
                 <p className="text-xs text-green-600">Tuntas</p>
@@ -678,8 +725,6 @@ export default function ItjenPage() {
               </div>
             </div>
           </div>
-
-          {/* CLASSIFICATION */}
 
           <div className="rounded-2xl border border-slate-200 bg-white p-7 shadow-sm">
             <div className="flex items-start justify-between">
@@ -776,8 +821,6 @@ export default function ItjenPage() {
         {/* =================================================== */}
 
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          {/* TABLE HEADER */}
-
           <div className="border-b border-slate-200 px-6 py-6 lg:px-7">
             <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
               <div>
@@ -800,11 +843,7 @@ export default function ItjenPage() {
                 </p>
               </div>
 
-              {/* FILTERS */}
-
               <div className="flex flex-col gap-3 md:flex-row">
-                {/* SEARCH */}
-
                 <div className="relative">
                   <svg
                     className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
@@ -829,23 +868,16 @@ export default function ItjenPage() {
                   />
                 </div>
 
-                {/* STATUS */}
-
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
                   className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-600 outline-none transition focus:border-[#D4A72C] focus:bg-white"
                 >
                   <option value="ALL">Semua Status</option>
-
                   <option value="SUDAH_TUNTAS">Sudah Tuntas</option>
-
                   <option value="BELUM_TUNTAS">Belum Tuntas</option>
-
                   <option value="BELUM_TL">Belum TL</option>
                 </select>
-
-                {/* CATEGORY */}
 
                 <select
                   value={categoryFilter}
@@ -863,8 +895,6 @@ export default function ItjenPage() {
               </div>
             </div>
           </div>
-
-          {/* TABLE BODY */}
 
           <div className="overflow-x-auto">
             {loading ? (
@@ -963,13 +993,9 @@ export default function ItjenPage() {
                       key={item.id}
                       className="group transition hover:bg-slate-50/80"
                     >
-                      {/* NO */}
-
                       <td className="px-6 py-5 text-sm font-medium text-slate-400">
                         {index + 1}
                       </td>
-
-                      {/* LHA */}
 
                       <td className="px-6 py-5">
                         <div className="flex items-center gap-3">
@@ -989,21 +1015,15 @@ export default function ItjenPage() {
                         </div>
                       </td>
 
-                      {/* DATE */}
-
                       <td className="px-6 py-5 text-sm text-slate-600">
                         {formatDate(item.lha_date)}
                       </td>
-
-                      {/* CATEGORY */}
 
                       <td className="px-6 py-5">
                         <span className="inline-flex max-w-[200px] rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600">
                           {item.category}
                         </span>
                       </td>
-
-                      {/* COUNT */}
 
                       <td className="px-6 py-5">
                         <span className="font-bold text-[#071426]">
@@ -1015,8 +1035,6 @@ export default function ItjenPage() {
                         </span>
                       </td>
 
-                      {/* FOLLOW UP */}
-
                       <td className="px-6 py-5">
                         <span
                           className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-semibold ${getStatusStyle(
@@ -1027,15 +1045,11 @@ export default function ItjenPage() {
                         </span>
                       </td>
 
-                      {/* SALDO */}
-
                       <td className="px-6 py-5">
                         <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600">
                           {item.saldo_status || "-"}
                         </span>
                       </td>
-
-                      {/* ACTION */}
 
                       <td className="px-6 py-5 text-right">
                         <button
@@ -1051,8 +1065,6 @@ export default function ItjenPage() {
               </table>
             )}
           </div>
-
-          {/* TABLE FOOTER */}
 
           {!loading && !error && (
             <div className="flex flex-col gap-2 border-t border-slate-200 px-6 py-4 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
@@ -1074,99 +1086,99 @@ export default function ItjenPage() {
         </section>
       </div>
 
-      {/* ===================================================== */}
-      {/* DETAIL DRAWER */}
-      {/* ===================================================== */}
+      {/* =====================================================
+    DETAIL DRAWER
+===================================================== */}
 
       {selected && (
         <div className="fixed inset-0 z-[100]">
-          {/* BACKDROP */}
-
           <div
             className="absolute inset-0 bg-[#071426]/60 backdrop-blur-sm"
             onClick={() => setSelected(null)}
           />
 
-          {/* DRAWER */}
-
-          <aside className="absolute right-0 top-0 h-full w-full max-w-xl overflow-y-auto bg-white shadow-2xl">
-            {/* DRAWER HEADER */}
-
+          <aside className="absolute right-0 top-0 h-full w-full max-w-xl overflow-y-auto bg-[#F8FAFC] shadow-2xl">
+            {/* HEADER */}
             <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-6 py-5 backdrop-blur">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#D4A72C]">
-                    Detail Pemeriksaan Itjen
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-[#D4A72C]" />
 
-                  <h2 className="mt-1 text-xl font-bold text-[#071426]">
+                    <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#9B7518]">
+                      Detail Pemeriksaan Itjen
+                    </span>
+                  </div>
+
+                  <h2 className="mt-2 text-2xl font-bold text-[#071426]">
                     {selected.lha_number}
                   </h2>
 
                   <p className="mt-1 text-xs text-slate-400">
-                    ID #{selected.id}
+                    ID Rekomendasi #{selected.id}
                   </p>
                 </div>
 
                 <button
+                  type="button"
                   onClick={() => setSelected(null)}
-                  className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-700"
+                  className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-xl text-slate-500 transition hover:bg-slate-50 hover:text-[#071426]"
                 >
-                  <svg
-                    className="h-5 w-5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
+                  ×
                 </button>
               </div>
             </div>
 
-            {/* DRAWER CONTENT */}
-
-            <div className="space-y-6 p-6">
+            <div className="space-y-5 p-6">
               {/* HERO */}
+              <div className="relative overflow-hidden rounded-2xl bg-[#071426] p-6 text-white">
+                <div className="absolute -right-10 -top-10 h-36 w-36 rounded-full bg-[#D4A72C]/10 blur-2xl" />
 
-              <div className="overflow-hidden rounded-2xl bg-[#071426] p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wider text-slate-400">
-                      Jumlah Rekomendasi
-                    </p>
+                <div className="relative">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        Nomor Rekomendasi
+                      </p>
 
-                    <p className="mt-2 text-4xl font-bold text-white">
-                      {selected.recommendation_count}
-                    </p>
+                      <p className="mt-2 text-5xl font-bold text-white">
+                        #{selected.recommendation_number || 1}
+                      </p>
+                    </div>
 
-                    <p className="mt-1 text-sm text-slate-400">
-                      rekomendasi pemeriksaan
-                    </p>
+                    <div className="rounded-xl border border-[#D4A72C]/30 bg-[#D4A72C]/10 px-3 py-2 text-[10px] font-bold text-[#D4A72C]">
+                      ITJEN
+                    </div>
                   </div>
 
-                  <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-[#D4A72C]/30 bg-[#D4A72C]/10 text-xl font-bold text-[#D4A72C]">
-                    ITJEN
-                  </div>
+                  <p className="mt-4 text-xs text-slate-400">
+                    Rekomendasi pemeriksaan Inspektorat Jenderal.
+                  </p>
                 </div>
               </div>
 
               {/* STATUS */}
-
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                    Status Tindak Lanjut
+                <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Status Saldo
+                  </p>
+
+                  <div className="mt-3">
+                    <span className="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-600">
+                      {selected.saldo_status || "-"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Tindak Lanjut
                   </p>
 
                   <div className="mt-3">
                     <span
-                      className={`inline-flex rounded-full border px-4 py-2 text-sm font-semibold ${getStatusStyle(
+                      className={`inline-flex rounded-lg border px-3 py-2 text-xs font-bold ${getStatusStyle(
                         selected.follow_up_status
                       )}`}
                     >
@@ -1174,104 +1186,198 @@ export default function ItjenPage() {
                     </span>
                   </div>
                 </div>
-
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                    Status Saldo
-                  </p>
-
-                  <div className="mt-3">
-                    <span className="inline-flex rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600">
-                      {selected.saldo_status || "-"}
-                    </span>
-                  </div>
-                </div>
               </div>
 
               {/* INFORMATION */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                <p className="mb-5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                  Informasi Pemeriksaan
+                </p>
 
-              <div className="rounded-2xl border border-slate-200 bg-white">
-                <div className="border-b border-slate-200 px-5 py-4">
-                  <h3 className="font-semibold text-[#071426]">
-                    Informasi Pemeriksaan
-                  </h3>
-                </div>
-
-                <div className="divide-y divide-slate-100">
-                  <div className="flex items-start justify-between gap-5 px-5 py-4">
-                    <span className="text-sm text-slate-400">
-                      Sumber Pemeriksaan
+                <div className="space-y-4">
+                  <div className="flex items-start justify-between gap-5 border-b border-slate-100 pb-4">
+                    <span className="text-xs text-slate-400">
+                      Nomor LHA / LHP
                     </span>
 
-                    <span className="text-right text-sm font-semibold text-slate-700">
-                      Inspektorat Jenderal
-                    </span>
-                  </div>
-
-                  <div className="flex items-start justify-between gap-5 px-5 py-4">
-                    <span className="text-sm text-slate-400">Nomor LHA</span>
-
-                    <span className="text-right text-sm font-semibold text-slate-700">
+                    <span className="text-right text-sm font-bold text-[#071426]">
                       {selected.lha_number}
                     </span>
                   </div>
 
-                  <div className="flex items-start justify-between gap-5 px-5 py-4">
-                    <span className="text-sm text-slate-400">Tanggal LHA</span>
+                  <div className="flex items-start justify-between gap-5 border-b border-slate-100 pb-4">
+                    <span className="text-xs text-slate-400">
+                      Tanggal Pemeriksaan
+                    </span>
 
                     <span className="text-right text-sm font-semibold text-slate-700">
                       {formatDate(selected.lha_date)}
                     </span>
                   </div>
 
-                  <div className="flex items-start justify-between gap-5 px-5 py-4">
-                    <span className="text-sm text-slate-400">Kategori</span>
+                  <div className="flex items-start justify-between gap-5 border-b border-slate-100 pb-4">
+                    <span className="text-xs text-slate-400">Kategori</span>
 
                     <span className="text-right text-sm font-semibold text-slate-700">
                       {selected.category}
                     </span>
                   </div>
 
-                  <div className="flex items-start justify-between gap-5 px-5 py-4">
-                    <span className="text-sm text-slate-400">
-                      Jumlah Rekomendasi
+                  <div className="flex items-start justify-between gap-5 border-b border-slate-100 pb-4">
+                    <span className="text-xs text-slate-400">
+                      Sumber Pemeriksaan
                     </span>
 
-                    <span className="text-right text-sm font-semibold text-slate-700">
-                      {selected.recommendation_count}
+                    <span className="rounded-lg bg-[#071426] px-3 py-1.5 text-xs font-bold text-white">
+                      ITJEN
+                    </span>
+                  </div>
+
+                  <div className="flex items-start justify-between gap-5">
+                    <span className="text-xs text-slate-400">
+                      Nomor Rekomendasi
+                    </span>
+
+                    <span className="text-right text-sm font-bold text-[#071426]">
+                      #{selected.recommendation_number || 1}
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* DESCRIPTION */}
+              {/* DETAIL REKOMENDASI */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                <p className="mb-5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                  Detail Rekomendasi
+                </p>
 
-              <div className="rounded-2xl border border-slate-200 bg-white">
-                <div className="border-b border-slate-200 px-5 py-4">
-                  <h3 className="font-semibold text-[#071426]">
-                    Uraian / Keterangan
-                  </h3>
-                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {/* NO TEMUAN */}
+                  <div className="rounded-xl bg-slate-50 p-4">
+                    <p className="text-[10px] font-semibold text-slate-400">
+                      No Temuan
+                    </p>
 
-                <div className="p-5">
-                  <p className="whitespace-pre-wrap text-sm leading-7 text-slate-600">
-                    {selected.description || "Tidak ada keterangan."}
-                  </p>
+                    <p className="mt-2 text-sm font-semibold leading-6 text-slate-700">
+                      {selected.no_temuan || "-"}
+                    </p>
+                  </div>
+
+                  {/* JUDUL */}
+                  <div className="rounded-xl bg-slate-50 p-4">
+                    <p className="text-[10px] font-semibold text-slate-400">
+                      Judul
+                    </p>
+
+                    <p className="mt-2 text-sm font-semibold leading-6 text-slate-700">
+                      {selected.judul || "-"}
+                    </p>
+                  </div>
+
+                  {/* RENCANA AKSI */}
+                  <div className="rounded-xl bg-slate-50 p-4 sm:col-span-2">
+                    <p className="text-[10px] font-semibold text-slate-400">
+                      Rencana Aksi
+                    </p>
+
+                    <p className="mt-2 text-sm leading-7 text-slate-700">
+                      {selected.rencana_aksi || "-"}
+                    </p>
+                  </div>
+
+                  {/* KETERANGAN / BUKTI DUKUNG */}
+                  <div className="rounded-xl bg-slate-50 p-4 sm:col-span-2">
+                    <p className="text-[10px] font-semibold text-slate-400">
+                      Keterangan / Bukti Dukung
+                    </p>
+
+                    <p className="mt-2 text-sm leading-7 text-slate-700">
+                      {selected.keterangan_bukti_dukung || "-"}
+                    </p>
+                  </div>
+
+                  {/* WAKTU PELAKSANAAN */}
+                  <div className="rounded-xl bg-slate-50 p-4">
+                    <p className="text-[10px] font-semibold text-slate-400">
+                      Waktu Pelaksanaan
+                    </p>
+
+                    <p className="mt-2 text-sm font-semibold text-slate-700">
+                      {selected.waktu_pelaksanaan
+                        ? formatDate(selected.waktu_pelaksanaan)
+                        : "-"}
+                    </p>
+                  </div>
+
+                  {/* UIC */}
+                  <div className="rounded-xl bg-slate-50 p-4">
+                    <p className="text-[10px] font-semibold text-slate-400">
+                      UIC
+                    </p>
+
+                    <p className="mt-2 text-sm font-semibold text-slate-700">
+                      {selected.uic || "-"}
+                    </p>
+                  </div>
+
+                  {/* TINDAK LANJUT */}
+                  <div className="rounded-xl bg-slate-50 p-4 sm:col-span-2">
+                    <p className="text-[10px] font-semibold text-slate-400">
+                      Tindak Lanjut
+                    </p>
+
+                    <p className="mt-2 text-sm leading-7 text-slate-700">
+                      {selected.tindak_lanjut || "-"}
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* DRAWER FOOTER */}
+              {/* ACTION */}
+              <div className="flex flex-wrap gap-3">
+                {/* EDIT TERSEDIA UNTUK SEMUA STATUS */}
+                <button
+                  type="button"
+                  onClick={() => editData(selected)}
+                  className="..."
+                >
+                  Edit
+                </button>
 
-            <div className="sticky bottom-0 border-t border-slate-200 bg-white p-5">
-              <button
-                onClick={() => setSelected(null)}
-                className="w-full rounded-xl bg-[#071426] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#10243e]"
-              >
-                Tutup Detail
-              </button>
+                <button
+                  type="button"
+                  onClick={() => deleteData(selected)}
+                  className="flex-1 rounded-xl bg-red-600 py-3 text-sm font-bold text-white transition hover:bg-red-700"
+                >
+                  Hapus Data
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSelected(null)}
+                  className="w-full rounded-xl border border-slate-200 bg-white py-3 text-sm font-bold text-slate-600 transition hover:bg-slate-50"
+                >
+                  Tutup Detail
+                </button>
+              </div>
             </div>
           </aside>
+        </div>
+      )}
+      {showForm && (
+        <div className="fixed inset-0 z-[120] overflow-y-auto bg-black/50 p-4 backdrop-blur-sm">
+          <div className="flex min-h-full items-start justify-center py-8">
+            <div className="w-full max-w-5xl">
+              <RecommendationForm
+                onSaved={() => {
+                  closeForm();
+                  loadData();
+                }}
+                editingData={editing}
+                onCancelEdit={closeForm}
+              />
+            </div>
+          </div>
         </div>
       )}
     </main>

@@ -237,7 +237,53 @@ export default function DashboardPage() {
 
   const persentaseBelumTl = safePercentage(itjenData.belumTl, itjenData.total);
 
-  const recentData = recommendations.slice(0, 5);
+  const recentData = Array.from(
+    new Map(
+      recommendations.map((item) => {
+        const group = recommendations.filter(
+          (rec) =>
+            rec.source === item.source && rec.lha_number === item.lha_number
+        );
+
+        /*
+         * STATUS FOLDER / LHA
+         *
+         * Jika masih ada satu saja BELUM_TL
+         * → Belum TL
+         *
+         * Jika tidak ada BELUM_TL tetapi masih ada
+         * SUDAH_TL / BELUM_TUNTAS
+         * → Sudah TL
+         *
+         * Jika semua sudah SUDAH_TUNTAS
+         * → Sudah Tuntas
+         */
+
+        let folderStatus = "SUDAH_TUNTAS";
+
+        if (group.some((rec) => rec.follow_up_status === "BELUM_TL")) {
+          folderStatus = "BELUM_TL";
+        } else if (
+          group.some(
+            (rec) =>
+              rec.follow_up_status === "SUDAH_TL" ||
+              rec.follow_up_status === "BELUM_TUNTAS"
+          )
+        ) {
+          folderStatus = "SUDAH_TL";
+        }
+
+        return [
+          `${item.source}-${item.lha_number}`,
+          {
+            ...item,
+            recommendation_count: group.length,
+            follow_up_status: folderStatus,
+          },
+        ];
+      })
+    ).values()
+  ).slice(0, 5);
 
   /*
   ============================================================

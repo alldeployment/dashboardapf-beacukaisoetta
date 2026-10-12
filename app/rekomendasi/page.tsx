@@ -232,6 +232,15 @@ export default function RekomendasiPage() {
   const [manualCapaian, setManualCapaian] = useState(0);
   const [automaticCapaian, setAutomaticCapaian] = useState(0);
   const [indeksCapaian, setIndeksCapaian] = useState(0);
+  const [indeksManual, setIndeksManual] = useState(0);
+  const [modeIndeks, setModeIndeks] = useState<"MANUAL" | "OTOMATIS">(
+    "OTOMATIS"
+  );
+
+  const [rumusCapaian, setRumusCapaian] = useState("");
+  const [rumusIndeks, setRumusIndeks] = useState("");
+  const [showRumusModal, setShowRumusModal] = useState(false);
+  const [savingRumus, setSavingRumus] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -347,7 +356,13 @@ export default function RekomendasiPage() {
        */
       if (capaianResponse.ok) {
         const capaianJson = await readApiJson(capaianResponse);
+        const rumusTersimpan = capaianJson?.data?.rumus;
 
+        if (rumusTersimpan) {
+          setRumusCapaian(rumusTersimpan.rumus_capaian ?? "");
+
+          setRumusIndeks(rumusTersimpan.rumus_indeks ?? "");
+        }
         const manualValue = Number(
           capaianJson?.data?.capaian_manual ??
             capaianJson?.data?.capaian ??
@@ -359,6 +374,16 @@ export default function RekomendasiPage() {
         const automaticValue = Number(capaianJson?.data?.capaian_otomatis ?? 0);
 
         const indeksValue = Number(capaianJson?.data?.indeks_capaian ?? 0);
+        const indeksManualValue = Number(
+          capaianJson?.data?.indeks_capaian_manual ?? 0
+        );
+
+        setIndeksManual(indeksManualValue);
+        setModeIndeks(
+          capaianJson?.data?.indeks_capaian_mode === "MANUAL"
+            ? "MANUAL"
+            : "OTOMATIS"
+        );
 
         setManualCapaian(Math.max(0, Math.min(100, Number(manualValue) || 0)));
 
@@ -620,11 +645,11 @@ export default function RekomendasiPage() {
     let value = Number(capaianInput);
 
     if (Number.isNaN(value)) {
-      alert("Capaian harus berupa angka.");
+      alert("Indeks capaian harus berupa angka.");
       return;
     }
 
-    value = Math.max(0, Math.min(100, value));
+    value = Math.max(0, Math.min(120, value));
 
     try {
       setSavingCapaian(true);
@@ -635,42 +660,72 @@ export default function RekomendasiPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          capaian_manual: value,
+          indeks_capaian_manual: value,
+          indeks_capaian_mode: "OTOMATIS",
         }),
       });
 
       const result = await readApiJson(response);
 
       if (!response.ok) {
-        throw new Error(
-          result?.message || "Gagal menyimpan capaian keseluruhan."
-        );
+        throw new Error(result?.message || "Gagal menyimpan indeks capaian.");
       }
 
-      const savedValue = Number(
-        result?.data?.capaian_manual ?? result?.data?.capaian ?? value
-      );
-
-      const safeSavedValue = Math.max(
-        0,
-        Math.min(100, Number(savedValue) || 0)
-      );
-
-      setManualCapaian(safeSavedValue);
+      setIndeksManual(value);
+      setModeIndeks("MANUAL");
+      setIndeksCapaian(value / 100);
       setShowCapaianModal(false);
-      setCapaianInput(String(safeSavedValue));
+      setCapaianInput(String(value));
 
       await loadData(true);
     } catch (err) {
       console.error(err);
 
       alert(
-        err instanceof Error
-          ? err.message
-          : "Gagal menyimpan capaian keseluruhan."
+        err instanceof Error ? err.message : "Gagal menyimpan indeks capaian."
       );
     } finally {
       setSavingCapaian(false);
+    }
+  }
+
+  async function saveRumus() {
+    if (!rumusCapaian.trim() || !rumusIndeks.trim()) {
+      alert("Rumus Capaian dan Rumus Indeks wajib diisi.");
+      return;
+    }
+
+    try {
+      setSavingRumus(true);
+
+      const response = await fetch("/api/dashboard/capaian", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          rumus_capaian: rumusCapaian.trim(),
+          rumus_indeks: rumusIndeks.trim(),
+        }),
+      });
+
+      const result = await readApiJson(response);
+
+      if (!response.ok || result?.ok === false) {
+        throw new Error(result?.message || "Gagal menyimpan rumus.");
+      }
+
+      // Tutup modal setelah rumus berhasil disimpan.
+      setShowRumusModal(false);
+
+      // Ambil kembali hasil perhitungan terbaru dari server.
+      await loadData(true);
+
+      alert("Rumus berhasil disimpan. Indeks Capaian telah diperbarui.");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Gagal menyimpan rumus.");
+    } finally {
+      setSavingRumus(false);
     }
   }
 
@@ -780,21 +835,15 @@ export default function RekomendasiPage() {
           <KpiCard
             title="Indeks Capaian"
             value={
-              <div className="flex items-center gap-2">
-                <span>
-                  {formatPercent(
-                    manualCapaian > 0
-                      ? Math.min((manualCapaian / 62) * 100, 120)
-                      : indeksCapaian * 100
-                  )}
-                </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span>{formatPercent(indeksCapaian * 100)}</span>
 
                 <button
                   type="button"
-                  onClick={openCapaianEdit}
-                  className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700 transition hover:bg-blue-100"
+                  onClick={() => setShowRumusModal(true)}
+                  className="rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-bold text-purple-700 hover:bg-purple-100"
                 >
-                  Edit
+                  Atur Rumus
                 </button>
               </div>
             }
@@ -1338,7 +1387,6 @@ export default function RekomendasiPage() {
                             />
                           </div>
                         </div>
-
                         {/* CAPAIAN REKOMENDASI */}
                         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                           <div className="mb-3 flex items-center justify-between gap-3">
@@ -1367,17 +1415,18 @@ export default function RekomendasiPage() {
                           lhaDate={detailFolder.lha_date}
                           recommendationId={item.id}
                         />
-
                         {/* AKSI */}
                         <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4">
+                          {/* Edit tersedia untuk semua status */}
                           <button
                             type="button"
                             onClick={() => editData(item)}
-                            className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                            className="rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-bold text-blue-600 transition hover:bg-blue-100"
                           >
-                            Edit Data
+                            Edit
                           </button>
 
+                          {/* Hapus tetap tersedia */}
                           <button
                             type="button"
                             onClick={() => deleteData(item)}
@@ -1459,6 +1508,64 @@ export default function RekomendasiPage() {
                 className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50"
               >
                 {savingCapaian ? "Menyimpan..." : "Simpan Capaian"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRumusModal && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
+            <h3 className="text-xl font-bold text-slate-900">
+              Pengaturan Rumus Indeks Capaian
+            </h3>
+            <p className="mt-1 text-sm text-slate-500">
+              Rumus berlaku secara global untuk Indeks Capaian. Perubahan akan
+              diterapkan setelah rumus berhasil disimpan.
+            </p>
+
+            <label className="mb-2 mt-5 block text-sm font-semibold text-slate-700">
+              Rumus Capaian
+            </label>
+
+            <textarea
+              value={rumusCapaian}
+              onChange={(event) => setRumusCapaian(event.target.value)}
+              placeholder="Contoh: (0.7 * TL_BELUM_TUNTAS + TL_SUDAH_TUNTAS) / SALDO"
+              className="w-full rounded-xl border border-slate-300 p-3 text-sm text-slate-800"
+              rows={3}
+            />
+
+            <label className="mb-2 mt-4 block text-sm font-semibold text-slate-700">
+              Rumus Indeks Capaian
+            </label>
+
+            <textarea
+              value={rumusIndeks}
+              onChange={(event) => setRumusIndeks(event.target.value)}
+              placeholder="Contoh: MIN(CAPAIAN / 0.62, 1.2)"
+              className="w-full rounded-xl border border-slate-300 p-3 text-sm text-slate-800"
+              rows={3}
+            />
+
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                type="button"
+                disabled={savingRumus}
+                onClick={() => setShowRumusModal(false)}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
+              >
+                Batal
+              </button>
+
+              <button
+                type="button"
+                disabled={savingRumus}
+                onClick={saveRumus}
+                className="rounded-xl bg-blue-600 px-5 py-2 text-sm font-bold text-white disabled:opacity-50"
+              >
+                {savingRumus ? "Menyimpan..." : "Simpan Rumus"}
               </button>
             </div>
           </div>

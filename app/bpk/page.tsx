@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import RecommendationForm from "@/components/RecommendationForm";
 
 type Recommendation = {
   id: number;
@@ -8,13 +9,25 @@ type Recommendation = {
   category: string;
   lha_number: string;
   lha_date: string;
+
+  recommendation_number: number;
   recommendation_count: number;
+
   follow_up_status: string;
   saldo_status: string;
+
   description: string | null;
+
+  no_temuan?: string | null;
+  judul?: string | null;
+  rencana_aksi?: string | null;
+  keterangan_bukti_dukung?: string | null;
+  waktu_pelaksanaan?: string | null;
+  uic?: string | null;
+  tindak_lanjut?: string | null;
+
   created_at?: string;
 };
-
 type Summary = {
   total: number;
   masukSaldo: number;
@@ -45,6 +58,9 @@ export default function BpkPage() {
   const [categoryFilter, setCategoryFilter] = useState("ALL");
 
   const [selected, setSelected] = useState<Recommendation | null>(null);
+
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<Recommendation | null>(null);
 
   async function loadData() {
     try {
@@ -90,6 +106,62 @@ export default function BpkPage() {
     loadData();
   }, []);
 
+  /*
+   * EDIT DATA
+   */
+
+  function editData(item: Recommendation) {
+    setSelected(null);
+    setEditing(item);
+    setShowForm(true);
+  }
+
+  function closeForm() {
+    setShowForm(false);
+    setEditing(null);
+  }
+
+  /*
+   * HAPUS DATA
+   */
+  async function deleteData(item: Recommendation) {
+    const confirmed = window.confirm(
+      `Yakin ingin menghapus rekomendasi ${item.lha_number}?`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch(`/api/recommendations?id=${item.id}`, {
+        method: "DELETE",
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.message || "Gagal menghapus data.");
+      }
+
+      setSelected(null);
+
+      if (editing?.id === item.id) {
+        setEditing(null);
+        setShowForm(false);
+      }
+
+      await loadData();
+
+      alert("Data BPK berhasil dihapus.");
+    } catch (err) {
+      console.error(err);
+
+      alert(err instanceof Error ? err.message : "Gagal menghapus data.");
+    }
+  }
+
+  /*
+   * FILTER DATA
+   */
   const filteredData = useMemo(() => {
     const keyword = search.toLowerCase().trim();
 
@@ -103,12 +175,27 @@ export default function BpkPage() {
       const matchesStatus =
         statusFilter === "ALL" || item.saldo_status === statusFilter;
 
-      const matchesCategory =
-        categoryFilter === "ALL" || item.category === categoryFilter;
+      const normalizeCategory = (value: string | null | undefined) => {
+        return (value || "").trim().toLowerCase().replace(/\s+/g, " ");
+      };
 
+      const matchesCategory =
+        categoryFilter === "ALL" ||
+        normalizeCategory(item.category) === normalizeCategory(categoryFilter);
       return matchesSearch && matchesStatus && matchesCategory;
     });
   }, [data, search, statusFilter, categoryFilter]);
+
+  /*
+   * TOTAL KATEGORI UNIK
+   */
+  const totalKategori = useMemo(() => {
+    const categories = data
+      .map((item) => item.category?.trim())
+      .filter(Boolean);
+
+    return new Set(categories).size;
+  }, [data]);
 
   const saldoPercentage =
     summary.total > 0
@@ -186,6 +273,9 @@ export default function BpkPage() {
       case "SUDAH_TUNTAS":
         return "bg-green-50 text-green-700 border-green-200";
 
+      case "SUDAH_TL":
+        return "bg-blue-50 text-blue-700 border-blue-200";
+
       case "BELUM_TUNTAS":
         return "bg-amber-50 text-amber-700 border-amber-200";
 
@@ -201,6 +291,9 @@ export default function BpkPage() {
     switch (status) {
       case "SUDAH_TUNTAS":
         return "Sudah Tuntas";
+
+      case "SUDAH_TL":
+        return "Sudah TL";
 
       case "BELUM_TUNTAS":
         return "Belum Tuntas";
@@ -271,6 +364,7 @@ export default function BpkPage() {
                 className="inline-flex items-center gap-2 rounded-xl border border-[#D4A72C]/40 bg-[#D4A72C] px-5 py-3 text-sm font-bold text-[#071426] shadow-lg shadow-black/10 transition hover:bg-[#e5ba45] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <span className={loading ? "animate-spin" : ""}>↻</span>
+
                 {loading ? "Memuat..." : "Refresh Data"}
               </button>
             </div>
@@ -326,8 +420,6 @@ export default function BpkPage() {
                 <span className="text-xs text-slate-400">
                   Seluruh rekomendasi
                 </span>
-
-                <span className="text-xs font-bold text-[#071426]">2026</span>
               </div>
             </div>
           </div>
@@ -356,6 +448,7 @@ export default function BpkPage() {
               <div className="mt-5">
                 <div className="mb-2 flex justify-between text-[11px]">
                   <span className="text-slate-400">Capaian</span>
+
                   <span className="font-bold text-green-600">
                     {saldoPercentage}%
                   </span>
@@ -364,7 +457,9 @@ export default function BpkPage() {
                 <div className="h-1.5 overflow-hidden rounded-full bg-green-100">
                   <div
                     className="h-full rounded-full bg-green-500 transition-all duration-700"
-                    style={{ width: `${saldoPercentage}%` }}
+                    style={{
+                      width: `${saldoPercentage}%`,
+                    }}
                   />
                 </div>
               </div>
@@ -395,6 +490,7 @@ export default function BpkPage() {
               <div className="mt-5">
                 <div className="mb-2 flex justify-between text-[11px]">
                   <span className="text-slate-400">Perlu monitoring</span>
+
                   <span className="font-bold text-amber-600">
                     {belumSaldoPercentage}%
                   </span>
@@ -403,7 +499,9 @@ export default function BpkPage() {
                 <div className="h-1.5 overflow-hidden rounded-full bg-amber-100">
                   <div
                     className="h-full rounded-full bg-amber-500 transition-all duration-700"
-                    style={{ width: `${belumSaldoPercentage}%` }}
+                    style={{
+                      width: `${belumSaldoPercentage}%`,
+                    }}
                   />
                 </div>
               </div>
@@ -516,7 +614,9 @@ export default function BpkPage() {
                   <div className="h-2 overflow-hidden rounded-full bg-green-100">
                     <div
                       className="h-full rounded-full bg-green-500 transition-all duration-700"
-                      style={{ width: `${saldoPercentage}%` }}
+                      style={{
+                        width: `${saldoPercentage}%`,
+                      }}
                     />
                   </div>
 
@@ -543,7 +643,9 @@ export default function BpkPage() {
                   <div className="h-2 overflow-hidden rounded-full bg-amber-100">
                     <div
                       className="h-full rounded-full bg-amber-500 transition-all duration-700"
-                      style={{ width: `${belumSaldoPercentage}%` }}
+                      style={{
+                        width: `${belumSaldoPercentage}%`,
+                      }}
                     />
                   </div>
 
@@ -598,7 +700,9 @@ export default function BpkPage() {
                 <div className="h-3 overflow-hidden rounded-full bg-slate-100">
                   <div
                     className="h-full rounded-full bg-[#071426] transition-all duration-700"
-                    style={{ width: `${keuanganPercentage}%` }}
+                    style={{
+                      width: `${keuanganPercentage}%`,
+                    }}
                   />
                 </div>
               </div>
@@ -629,7 +733,9 @@ export default function BpkPage() {
                 <div className="h-3 overflow-hidden rounded-full bg-slate-100">
                   <div
                     className="h-full rounded-full bg-[#D4A72C] transition-all duration-700"
-                    style={{ width: `${bukanKeuanganPercentage}%` }}
+                    style={{
+                      width: `${bukanKeuanganPercentage}%`,
+                    }}
                   />
                 </div>
               </div>
@@ -643,7 +749,7 @@ export default function BpkPage() {
                   </p>
 
                   <p className="mt-1 text-lg font-bold text-white">
-                    {summary.keuangan + summary.bukanKeuangan}
+                    {totalKategori}
                   </p>
                 </div>
 
@@ -661,7 +767,6 @@ export default function BpkPage() {
 
         {/* DATA TABLE */}
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          {/* TABLE HEADER */}
           <div className="border-b border-slate-100 px-6 py-6">
             <div className="flex flex-col justify-between gap-5 xl:flex-row xl:items-center">
               <div>
@@ -683,7 +788,7 @@ export default function BpkPage() {
               <div className="flex flex-col gap-2 md:flex-row">
                 {/* SEARCH */}
                 <div className="relative">
-                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
                     ⌕
                   </span>
 
@@ -692,7 +797,7 @@ export default function BpkPage() {
                     placeholder="Cari nomor LHA..."
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-4 text-sm outline-none transition focus:border-[#D4A72C] focus:bg-white focus:ring-2 focus:ring-[#D4A72C]/10 md:w-56"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-black outline-none focus:border-[#D4A72C] focus:ring-2 focus:ring-[#D4A72C]/10"
                   />
                 </div>
 
@@ -700,7 +805,7 @@ export default function BpkPage() {
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none transition focus:border-[#D4A72C] focus:bg-white"
+                  className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700 outline-none transition focus:border-[#D4A72C] focus:bg-white"
                 >
                   <option value="ALL">Semua Status</option>
                   <option value="MASUK_SALDO">Masuk Saldo</option>
@@ -712,7 +817,7 @@ export default function BpkPage() {
                 <select
                   value={categoryFilter}
                   onChange={(e) => setCategoryFilter(e.target.value)}
-                  className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm outline-none transition focus:border-[#D4A72C] focus:bg-white"
+                  className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700 outline-none transition focus:border-[#D4A72C] focus:bg-white"
                 >
                   <option value="ALL">Semua Kategori</option>
                   <option value="Laporan Keuangan">Laporan Keuangan</option>
@@ -852,7 +957,7 @@ export default function BpkPage() {
 
                       <td className="px-6 py-5 text-center">
                         <span className="inline-flex h-9 min-w-9 items-center justify-center rounded-xl bg-[#071426] px-3 text-sm font-bold text-white">
-                          {item.recommendation_count}
+                          {item.recommendation_number}
                         </span>
                       </td>
 
@@ -876,13 +981,32 @@ export default function BpkPage() {
                         </span>
                       </td>
 
+                      {/* AKSI */}
                       <td className="px-6 py-5 text-right">
-                        <button
-                          onClick={() => setSelected(item)}
-                          className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-600 shadow-sm transition hover:border-[#D4A72C] hover:bg-[#D4A72C]/5 hover:text-[#9B7518]"
-                        >
-                          Detail →
-                        </button>
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelected(item)}
+                            className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-bold text-slate-600 shadow-sm transition hover:border-[#D4A72C] hover:bg-[#D4A72C]/5 hover:text-[#9B7518]"
+                          >
+                            Detail
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => editData(item)}
+                            className="rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-bold text-blue-600 transition hover:bg-blue-100"
+                          >
+                            Edit
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => deleteData(item)}
+                            className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2 text-xs font-bold text-red-600 transition hover:bg-red-100"
+                          >
+                            Hapus
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -916,15 +1040,12 @@ export default function BpkPage() {
       {/* DETAIL DRAWER */}
       {selected && (
         <div className="fixed inset-0 z-[100] flex justify-end">
-          {/* BACKDROP */}
           <div
             className="absolute inset-0 bg-[#071426]/50 backdrop-blur-sm"
             onClick={() => setSelected(null)}
           />
 
-          {/* DRAWER */}
           <aside className="relative h-full w-full max-w-xl overflow-y-auto bg-[#F8FAFC] shadow-2xl">
-            {/* DRAWER HEADER */}
             <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-6 py-5 backdrop-blur">
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -946,6 +1067,7 @@ export default function BpkPage() {
                 </div>
 
                 <button
+                  type="button"
                   onClick={() => setSelected(null)}
                   className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-xl text-slate-500 transition hover:bg-slate-50 hover:text-[#071426]"
                 >
@@ -967,7 +1089,7 @@ export default function BpkPage() {
                       </p>
 
                       <p className="mt-2 text-5xl font-bold text-white">
-                        {selected.recommendation_count}
+                        {selected.recommendation_number}
                       </p>
                     </div>
 
@@ -981,7 +1103,6 @@ export default function BpkPage() {
                   </p>
                 </div>
               </div>
-
               {/* STATUS */}
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="rounded-2xl border border-slate-200 bg-white p-5">
@@ -1016,7 +1137,6 @@ export default function BpkPage() {
                   </div>
                 </div>
               </div>
-
               {/* INFORMATION */}
               <div className="rounded-2xl border border-slate-200 bg-white p-5">
                 <p className="mb-5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
@@ -1063,8 +1183,94 @@ export default function BpkPage() {
                   </div>
                 </div>
               </div>
-
               {/* DESCRIPTION */}
+              {/* DETAIL REKOMENDASI */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                <p className="mb-5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                  Detail Rekomendasi
+                </p>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {/* NO TEMUAN */}
+                  <div className="rounded-xl bg-slate-50 p-4">
+                    <p className="text-[10px] font-semibold text-slate-400">
+                      No Temuan
+                    </p>
+
+                    <p className="mt-2 text-sm font-semibold leading-6 text-slate-700">
+                      {selected.no_temuan || "-"}
+                    </p>
+                  </div>
+
+                  {/* JUDUL */}
+                  <div className="rounded-xl bg-slate-50 p-4">
+                    <p className="text-[10px] font-semibold text-slate-400">
+                      Judul
+                    </p>
+
+                    <p className="mt-2 text-sm font-semibold leading-6 text-slate-700">
+                      {selected.judul || "-"}
+                    </p>
+                  </div>
+
+                  {/* RENCANA AKSI */}
+                  <div className="rounded-xl bg-slate-50 p-4 sm:col-span-2">
+                    <p className="text-[10px] font-semibold text-slate-400">
+                      Rencana Aksi
+                    </p>
+
+                    <p className="mt-2 text-sm leading-7 text-slate-700">
+                      {selected.rencana_aksi || "-"}
+                    </p>
+                  </div>
+
+                  {/* KETERANGAN / BUKTI DUKUNG */}
+                  <div className="rounded-xl bg-slate-50 p-4 sm:col-span-2">
+                    <p className="text-[10px] font-semibold text-slate-400">
+                      Keterangan / Bukti Dukung
+                    </p>
+
+                    <p className="mt-2 text-sm leading-7 text-slate-700">
+                      {selected.keterangan_bukti_dukung || "-"}
+                    </p>
+                  </div>
+
+                  {/* WAKTU PELAKSANAAN */}
+                  <div className="rounded-xl bg-slate-50 p-4">
+                    <p className="text-[10px] font-semibold text-slate-400">
+                      Waktu Pelaksanaan
+                    </p>
+
+                    <p className="mt-2 text-sm font-semibold text-slate-700">
+                      {selected.waktu_pelaksanaan
+                        ? formatDate(selected.waktu_pelaksanaan)
+                        : "-"}
+                    </p>
+                  </div>
+
+                  {/* UIC */}
+                  <div className="rounded-xl bg-slate-50 p-4">
+                    <p className="text-[10px] font-semibold text-slate-400">
+                      UIC
+                    </p>
+
+                    <p className="mt-2 text-sm font-semibold text-slate-700">
+                      {selected.uic || "-"}
+                    </p>
+                  </div>
+
+                  {/* TINDAK LANJUT */}
+                  <div className="rounded-xl bg-slate-50 p-4 sm:col-span-2">
+                    <p className="text-[10px] font-semibold text-slate-400">
+                      Tindak Lanjut
+                    </p>
+
+                    <p className="mt-2 text-sm leading-7 text-slate-700">
+                      {selected.tindak_lanjut || "-"}
+                    </p>
+                  </div>
+                </div>
+              </div>{" "}
               <div className="rounded-2xl border border-slate-200 bg-white p-5">
                 <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
                   Keterangan
@@ -1076,16 +1282,51 @@ export default function BpkPage() {
                   </p>
                 </div>
               </div>
+              {/* ACTION DETAIL */}
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={() => editData(selected)}
+                  className="flex-1 rounded-xl bg-blue-600 py-3 text-sm font-bold text-white transition hover:bg-blue-700"
+                >
+                  Edit Data
+                </button>
 
-              {/* CLOSE */}
-              <button
-                onClick={() => setSelected(null)}
-                className="w-full rounded-xl border border-slate-200 bg-white py-3 text-sm font-bold text-slate-600 transition hover:bg-slate-50"
-              >
-                Tutup Detail
-              </button>
+                <button
+                  type="button"
+                  onClick={() => deleteData(selected)}
+                  className="flex-1 rounded-xl bg-red-600 py-3 text-sm font-bold text-white transition hover:bg-red-700"
+                >
+                  Hapus Data
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSelected(null)}
+                  className="w-full rounded-xl border border-slate-200 bg-white py-3 text-sm font-bold text-slate-600 transition hover:bg-slate-50"
+                >
+                  Tutup Detail
+                </button>
+              </div>
             </div>
           </aside>
+        </div>
+      )}
+
+      {showForm && (
+        <div className="fixed inset-0 z-[120] overflow-y-auto bg-black/50 p-4 backdrop-blur-sm">
+          <div className="flex min-h-full items-start justify-center py-8">
+            <div className="w-full max-w-5xl">
+              <RecommendationForm
+                onSaved={() => {
+                  closeForm();
+                  loadData();
+                }}
+                editingData={editing}
+                onCancelEdit={closeForm}
+              />
+            </div>
+          </div>
         </div>
       )}
     </main>

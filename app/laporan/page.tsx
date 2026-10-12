@@ -130,72 +130,52 @@ export default function LaporanPage() {
   // REKAP
   // =========================================================
 
-  const total = useMemo(
-    () =>
-      filteredData.reduce(
-        (sum, item) => sum + Number(item.recommendation_count),
-        0
-      ),
-    [filteredData]
-  );
+  // 1 DATA = 1 REKOMENDASI
+  const total = filteredData.length;
 
   const masukSaldo = useMemo(
     () =>
-      filteredData
-        .filter((item) => item.saldo_status === "MASUK_SALDO")
-        .reduce((sum, item) => sum + Number(item.recommendation_count), 0),
+      filteredData.filter((item) => item.saldo_status === "MASUK_SALDO").length,
     [filteredData]
   );
 
   const belumSaldo = useMemo(
     () =>
-      filteredData
-        .filter((item) => item.saldo_status === "BELUM_SALDO")
-        .reduce((sum, item) => sum + Number(item.recommendation_count), 0),
+      filteredData.filter((item) => item.saldo_status === "BELUM_SALDO").length,
     [filteredData]
   );
 
   const belumTl = useMemo(
     () =>
-      filteredData
-        .filter((item) => item.follow_up_status === "BELUM_TL")
-        .reduce((sum, item) => sum + Number(item.recommendation_count), 0),
+      filteredData.filter((item) => item.follow_up_status === "BELUM_TL")
+        .length,
     [filteredData]
   );
 
   const sudahTl = useMemo(
     () =>
-      filteredData
-        .filter(
-          (item) =>
-            item.follow_up_status === "SUDAH_TL" ||
-            item.follow_up_status === "BELUM_TUNTAS"
-        )
-        .reduce((sum, item) => sum + Number(item.recommendation_count), 0),
+      filteredData.filter(
+        (item) =>
+          item.follow_up_status === "SUDAH_TL" ||
+          item.follow_up_status === "BELUM_TUNTAS"
+      ).length,
     [filteredData]
   );
 
   const sudahTuntas = useMemo(
     () =>
-      filteredData
-        .filter((item) => item.follow_up_status === "SUDAH_TUNTAS")
-        .reduce((sum, item) => sum + Number(item.recommendation_count), 0),
+      filteredData.filter((item) => item.follow_up_status === "SUDAH_TUNTAS")
+        .length,
     [filteredData]
   );
 
   const bpkTotal = useMemo(
-    () =>
-      filteredData
-        .filter((item) => item.source === "BPK")
-        .reduce((sum, item) => sum + Number(item.recommendation_count), 0),
+    () => filteredData.filter((item) => item.source === "BPK").length,
     [filteredData]
   );
 
   const itjenTotal = useMemo(
-    () =>
-      filteredData
-        .filter((item) => item.source === "ITJEN")
-        .reduce((sum, item) => sum + Number(item.recommendation_count), 0),
+    () => filteredData.filter((item) => item.source === "ITJEN").length,
     [filteredData]
   );
 
