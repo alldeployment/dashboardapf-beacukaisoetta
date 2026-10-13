@@ -47,10 +47,20 @@ type Recommendation = {
   tindak_lanjut?: string | null;
 };
 
+type LhpFolder = {
+  lha_number: string;
+  source: string;
+  category: string;
+  lha_date: string;
+  items: Recommendation[];
+  capaian: number;
+};
+
 type Props = {
   onSaved: () => void;
   editingData?: Recommendation | null;
   onCancelEdit?: () => void;
+  initialFolder?: LhpFolder | null;
 };
 
 type ApiResponse = {
@@ -90,6 +100,7 @@ export default function RecommendationForm({
   onSaved,
   editingData,
   onCancelEdit,
+  initialFolder,
 }: Props) {
   const isEditing = Boolean(editingData);
 
@@ -102,6 +113,18 @@ export default function RecommendationForm({
   const [message, setMessage] = useState("");
 
   useEffect(() => {
+    // MODE TAMBAH REKOMENDASI KE FOLDER YANG SUDAH ADA
+    if (!editingData && initialFolder) {
+      setSource(initialFolder.source || "BPK");
+      setCategory(initialFolder.category || "");
+      setLhaNumber(initialFolder.lha_number || "");
+      setLhaDate(initialFolder.lha_date?.substring(0, 10) || "");
+      setItems([emptyItem()]);
+      setMessage("");
+      return;
+    }
+
+    // MODE TAMBAH LHA/LHP BARU
     if (!editingData) {
       setSource("BPK");
       setCategory("");
@@ -112,6 +135,7 @@ export default function RecommendationForm({
       return;
     }
 
+    // MODE EDIT REKOMENDASI LAMA
     setSource(editingData.source || "BPK");
     setCategory(editingData.category || "");
     setLhaNumber(editingData.lha_number || "");
@@ -126,11 +150,8 @@ export default function RecommendationForm({
         waktuPelaksanaan: editingData.waktu_pelaksanaan?.substring(0, 10) || "",
         uic: editingData.uic || "",
         tindakLanjut: editingData.tindak_lanjut || "",
-
         followUpStatus: editingData.follow_up_status || "BELUM_TL",
         saldoStatus: editingData.saldo_status || "BELUM_SALDO",
-
-        // Data lama tetap dimuat
         temuan: editingData.temuan || "",
         recommendation: editingData.recommendation || "",
         keterangan_1: editingData.keterangan_1 || "",
@@ -140,7 +161,7 @@ export default function RecommendationForm({
     ]);
 
     setMessage("");
-  }, [editingData]);
+  }, [editingData, initialFolder]);
 
   function updateItem(
     index: number,
@@ -377,7 +398,7 @@ export default function RecommendationForm({
                   value={source}
                   onChange={(event) => setSource(event.target.value)}
                   className={selectClass}
-                  disabled={loading}
+                  disabled={loading || Boolean(initialFolder)}
                 >
                   <option value="BPK">BPK</option>
                   <option value="ITJEN">ITJEN</option>
@@ -396,7 +417,7 @@ export default function RecommendationForm({
                   value={category}
                   onChange={(event) => setCategory(event.target.value)}
                   className={selectClass}
-                  disabled={loading}
+                  disabled={loading || Boolean(initialFolder)}
                 >
                   <option value="">Pilih kategori</option>
                   <option value="KEUANGAN">Keuangan</option>
@@ -421,7 +442,7 @@ export default function RecommendationForm({
                   onChange={(event) => setLhaNumber(event.target.value)}
                   placeholder="Contoh: 52/LHP/XV/07/2025"
                   className={inputClass}
-                  disabled={loading}
+                  disabled={loading || Boolean(initialFolder)}
                 />
               </div>
 
@@ -438,7 +459,7 @@ export default function RecommendationForm({
                   value={lhaDate}
                   onChange={(event) => setLhaDate(event.target.value)}
                   className={inputClass}
-                  disabled={loading}
+                  disabled={loading || Boolean(initialFolder)}
                 />
               </div>
             </div>
@@ -473,7 +494,7 @@ export default function RecommendationForm({
                   disabled={loading}
                   className="rounded-xl border-2 border-[#0B1F3A] bg-white px-4 py-2.5 text-sm font-bold text-[#0B1F3A] transition hover:bg-[#0B1F3A] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  + Tambah Baris
+                  + Tambah Rekomendasi
                 </button>
               )}
             </div>
@@ -502,7 +523,7 @@ export default function RecommendationForm({
                       </div>
                     </div>
 
-                    {!isEditing && items.length > 1 && (
+                    {items.length > 1 && (
                       <button
                         type="button"
                         onClick={() => removeItem(index)}

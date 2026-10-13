@@ -258,11 +258,13 @@ export async function POST(request: NextRequest) {
       `
       SELECT
         COALESCE(MAX(recommendation_number), 0)::int
-        AS last_number
+          AS last_number
       FROM recommendations
       WHERE lha_number = $1
+        AND source = $2
+        AND category = $3
       `,
-      [lhaNumber]
+      [lhaNumber, source, category]
     );
 
     let nextNumber = Number(lastNumberResult.rows[0]?.last_number || 0) + 1;
@@ -379,11 +381,19 @@ export async function POST(request: NextRequest) {
       `
       UPDATE recommendations
       SET
-        recommendation_count = $1,
+        recommendation_count = (
+          SELECT COUNT(*)
+          FROM recommendations r
+          WHERE r.lha_number = recommendations.lha_number
+            AND r.source = recommendations.source
+            AND r.category = recommendations.category
+        ),
         updated_at = CURRENT_TIMESTAMP
-      WHERE lha_number = $2
+      WHERE lha_number = $1
+        AND source = $2
+        AND category = $3
       `,
-      [recommendationList.length, lhaNumber]
+      [lhaNumber, source, category]
     );
 
     await client.query("COMMIT");
@@ -647,6 +657,8 @@ export async function DELETE(request: NextRequest) {
     }
 
     const deletedLhaNumber = result.rows[0].lha_number;
+    const deletedSource = result.rows[0].source;
+    const deletedCategory = result.rows[0].category;
 
     /**
      * Hitung ulang jumlah rekomendasi
@@ -659,13 +671,16 @@ export async function DELETE(request: NextRequest) {
         recommendation_count = (
           SELECT COUNT(*)
           FROM recommendations r2
-          WHERE r2.lha_number =
-            recommendations.lha_number
+          WHERE r2.lha_number = recommendations.lha_number
+            AND r2.source = recommendations.source
+            AND r2.category = recommendations.category
         ),
         updated_at = CURRENT_TIMESTAMP
       WHERE lha_number = $1
+        AND source = $2
+        AND category = $3
       `,
-      [deletedLhaNumber]
+      [deletedLhaNumber, deletedSource, deletedCategory]
     );
 
     return NextResponse.json({

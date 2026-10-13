@@ -255,6 +255,9 @@ export default function RekomendasiPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Recommendation | null>(null);
 
+  // Folder tujuan saat menambahkan rekomendasi baru
+  const [addingToFolder, setAddingToFolder] = useState<LhpFolder | null>(null);
+
   const [detailFolder, setDetailFolder] = useState<LhpFolder | null>(null);
 
   // Modal edit capaian keseluruhan
@@ -602,14 +605,26 @@ export default function RekomendasiPage() {
   /*
    * TAMBAH DATA
    */
+
   function openAddForm() {
     setEditing(null);
+    setAddingToFolder(null);
+    setShowForm(true);
+  }
+
+  // Membuka form untuk menambahkan rekomendasi
+  // ke folder LHP/LHA yang sudah ada
+  function openAddRecommendationForm(folder: LhpFolder) {
+    setEditing(null);
+    setAddingToFolder(folder);
+    setDetailFolder(null);
     setShowForm(true);
   }
 
   function closeForm() {
     setShowForm(false);
     setEditing(null);
+    setAddingToFolder(null);
   }
 
   /*
@@ -1199,12 +1214,13 @@ export default function RekomendasiPage() {
           <div className="flex min-h-full items-start justify-center py-8">
             <div className="w-full max-w-5xl">
               <RecommendationForm
-                onSaved={() => {
+                onSaved={async () => {
                   closeForm();
-                  loadData(true);
+                  await loadData(true);
                 }}
                 editingData={editing}
                 onCancelEdit={closeForm}
+                initialFolder={addingToFolder}
               />
             </div>
           </div>
@@ -1303,10 +1319,25 @@ export default function RekomendasiPage() {
 
               {/* DAFTAR REKOMENDASI */}
               <div>
-                <div className="mb-4">
-                  <h3 className="text-lg font-bold text-slate-900">
-                    Daftar Rekomendasi
-                  </h3>
+                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900">
+                      Daftar Rekomendasi
+                    </h3>
+
+                    <p className="text-sm text-slate-500">
+                      Tambahkan rekomendasi baru ke folder LHP/LHA ini tanpa
+                      membuat folder baru.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => openAddRecommendationForm(detailFolder)}
+                    className="shrink-0 rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700"
+                  >
+                    + Tambah Rekomendasi
+                  </button>
 
                   <p className="text-sm text-slate-500">
                     Nilai capaian rekomendasi ditampilkan sebagai bagian dari

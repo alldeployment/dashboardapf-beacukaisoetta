@@ -894,7 +894,7 @@ export default function BpkPage() {
                     </th>
 
                     <th className="px-6 py-4 text-center text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                      Rekomendasi
+                      No. Temuan
                     </th>
 
                     <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
@@ -957,7 +957,7 @@ export default function BpkPage() {
 
                       <td className="px-6 py-5 text-center">
                         <span className="inline-flex h-9 min-w-9 items-center justify-center rounded-xl bg-[#071426] px-3 text-sm font-bold text-white">
-                          {item.recommendation_number}
+                          {item.no_temuan || "-"}
                         </span>
                       </td>
 
