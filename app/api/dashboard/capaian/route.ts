@@ -9,38 +9,31 @@ const RUMUS_CAPAIAN_DEFAULT =
 
 const RUMUS_INDEKS_DEFAULT = "min(capaian / 0.62, 1.2)";
 
-// Capaian Keseluruhan dihitung terpisah dari Indeks Capaian.
 function calculateCapaian(
   saldo: number,
   tlBelumTuntas: number,
   tlSudahTuntas: number
 ): number {
   if (saldo <= 0) return 0;
-
   return (0.7 * tlBelumTuntas + tlSudahTuntas) / saldo;
 }
 
+// Pastikan kolom tersedia tanpa menghapus data yang ada.
 async function ensureCapaianColumns() {
   await pool.query(`
     ALTER TABLE public.dashboard_capaian
-    ADD COLUMN IF NOT EXISTS indeks_capaian_manual
-      NUMERIC NOT NULL DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS indeks_capaian_mode
-      VARCHAR(20) NOT NULL DEFAULT 'OTOMATIS'
+      ADD COLUMN IF NOT EXISTS indeks_capaian_manual
+        NUMERIC NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS indeks_capaian_mode
+        VARCHAR(20) NOT NULL DEFAULT 'OTOMATIS'
   `);
 }
 
-// Mengambil pengaturan rumus aktif dari database.
-// Jika belum ada, gunakan rumus default.
 async function getOrCreateRumus() {
   await pool.query(
     `
-    INSERT INTO pengaturan_rumus_capaian (
-      id,
-      rumus_capaian,
-      rumus_indeks,
-      versi,
-      updated_at
+    INSERT INTO public.pengaturan_rumus_capaian (
+      id, rumus_capaian, rumus_indeks, versi, updated_at
     )
     VALUES (1, $1, $2, 1, CURRENT_TIMESTAMP)
     ON CONFLICT (id) DO NOTHING
@@ -49,13 +42,8 @@ async function getOrCreateRumus() {
   );
 
   const result = await pool.query(`
-    SELECT
-      id,
-      rumus_capaian,
-      rumus_indeks,
-      versi,
-      updated_at
-    FROM pengaturan_rumus_capaian
+    SELECT id, rumus_capaian, rumus_indeks, versi, updated_at
+    FROM public.pengaturan_rumus_capaian
     WHERE id = 1
     LIMIT 1
   `);
@@ -63,7 +51,6 @@ async function getOrCreateRumus() {
   return result.rows[0];
 }
 
-// Mengambil atau membuat pengaturan capaian.
 async function getOrCreateCapaian() {
   await pool.query(`
     INSERT INTO public.dashboard_capaian (
@@ -92,7 +79,6 @@ async function getOrCreateCapaian() {
   return result.rows[0];
 }
 
-// Mengambil ringkasan rekomendasi.
 async function getSummary() {
   const result = await pool.query(`
     SELECT
@@ -106,28 +92,16 @@ async function getSummary() {
       COUNT(*) FILTER (
         WHERE follow_up_status = 'SUDAH_TUNTAS'
       )::int AS tl_sudah_tuntas
-    FROM recommendations
+    FROM public.recommendations
   `);
 
   return result.rows[0];
 }
 
-// GET: mengambil capaian dan menghitung indeks menggunakan rumus aktif.
+// GET: membaca capaian dan menghitung indeks.
 export async function GET() {
   try {
-    const cek = await pool.query(`
-SELECT
-  current_database() AS database_name,
-  current_schema() AS schema_name,
-  current_setting('search_path') AS search_path,
-  to_regclass('public.dashboard_capaian') AS tabel_capaian,
-  (
-    SELECT string_agg(column_name, ', ' ORDER BY ordinal_position)
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'dashboard_capaian'
-  ) AS kolom_capaian
-`);
+    await ensureCapaianColumns();
 
     const [saved, rumusTersimpan, summary] = await Promise.all([
       getOrCreateCapaian(),
@@ -161,7 +135,6 @@ SELECT
 
     const indeksCapaianManual = Number(saved?.indeks_capaian_manual ?? 0);
 
-    // Nilai yang ditampilkan mengikuti mode aktif.
     const indeksCapaian =
       mode === "MANUAL" ? indeksCapaianManual / 100 : indeksCapaianOtomatis;
 
@@ -169,20 +142,16 @@ SELECT
       ok: true,
       data: {
         rumus: rumusTersimpan,
-
         capaian_manual: Number(saved?.capaian_manual ?? 0),
         capaian_otomatis: capaianOtomatis,
-
         indeks_capaian: indeksCapaian,
         indeks_capaian_manual: indeksCapaianManual,
         indeks_capaian_otomatis: indeksCapaianOtomatis,
         indeks_capaian_mode: mode,
-
         saldo,
         belum_tl: belumTL,
         tl_belum_tuntas: tlBelumTuntas,
         tl_sudah_tuntas: tlSudahTuntas,
-
         updated_at: saved?.updated_at,
       },
     });
@@ -200,13 +169,14 @@ SELECT
   }
 }
 
-// PUT: menyimpan rumus atau memperbarui nilai capaian.
+// PUT: menyimpan rumus atau nilai capaian.
 export async function PUT(request: Request) {
   try {
     await ensureCapaianColumns();
+
     const body = await request.json();
 
-    // 1. Simpan rumus global.
+    // 1. Simpan rumus.
     if (body.rumus_capaian !== undefined || body.rumus_indeks !== undefined) {
       const rumusCapaian = String(body.rumus_capaian ?? "").trim();
 
@@ -222,8 +192,6 @@ export async function PUT(request: Request) {
         );
       }
 
-      // Validasi rumus sebelum menyimpannya.
-      // Jika tidak valid, penyimpanan dibatalkan.
       try {
         hitungRumusIndeks(rumusIndeks, {
           capaian: 0.5,
@@ -247,39 +215,28 @@ export async function PUT(request: Request) {
 
       await pool.query(
         `
-          INSERT INTO pengaturan_rumus_capaian (
-            id,
-            rumus_capaian,
-            rumus_indeks,
-            versi,
-            updated_at
-          )
-          VALUES (
-            1, $1, $2, 1, CURRENT_TIMESTAMP
-          )
-          ON CONFLICT (id) DO UPDATE SET
-            rumus_capaian = EXCLUDED.rumus_capaian,
-            rumus_indeks = EXCLUDED.rumus_indeks,
-            versi = pengaturan_rumus_capaian.versi + 1,
-            updated_at = CURRENT_TIMESTAMP
-        `,
+        INSERT INTO public.pengaturan_rumus_capaian (
+          id, rumus_capaian, rumus_indeks, versi, updated_at
+        )
+        VALUES (1, $1, $2, 1, CURRENT_TIMESTAMP)
+        ON CONFLICT (id) DO UPDATE SET
+          rumus_capaian = EXCLUDED.rumus_capaian,
+          rumus_indeks = EXCLUDED.rumus_indeks,
+          versi = pengaturan_rumus_capaian.versi + 1,
+          updated_at = CURRENT_TIMESTAMP
+      `,
         [rumusCapaian, rumusIndeks]
       );
 
-      // Setelah rumus diubah, aktifkan mode otomatis.
-      // Nilai manual lama tetap tersimpan, tetapi tidak digunakan
-      // sebagai nilai Indeks Capaian yang sedang ditampilkan.
       await pool.query(`
-        INSERT INTO dashboard_capaian (
+        INSERT INTO public.dashboard_capaian (
           id,
           capaian_manual,
           indeks_capaian_manual,
           indeks_capaian_mode,
           updated_at
         )
-        VALUES (
-          1, 0, 0, 'OTOMATIS', CURRENT_TIMESTAMP
-        )
+        VALUES (1, 0, 0, 'OTOMATIS', CURRENT_TIMESTAMP)
         ON CONFLICT (id) DO UPDATE SET
           indeks_capaian_mode = 'OTOMATIS',
           updated_at = CURRENT_TIMESTAMP
@@ -288,11 +245,11 @@ export async function PUT(request: Request) {
       return NextResponse.json({
         ok: true,
         message:
-          "Rumus berhasil disimpan dan mode Indeks Capaian diaktifkan ke otomatis.",
+          "Rumus berhasil disimpan dan mode indeks diaktifkan ke otomatis.",
       });
     }
 
-    // 2. Simpan Capaian Keseluruhan manual.
+    // 2. Simpan capaian manual.
     if (body.capaian_manual !== undefined) {
       const capaian = Number(body.capaian_manual);
 
@@ -308,23 +265,23 @@ export async function PUT(request: Request) {
 
       await pool.query(
         `
-          INSERT INTO dashboard_capaian (
-            id,
-            capaian_manual,
-            indeks_capaian_manual,
-            indeks_capaian_mode,
-            updated_at
-          )
-          VALUES (1, $1, 0, 'OTOMATIS', CURRENT_TIMESTAMP)
-          ON CONFLICT (id) DO UPDATE SET
-            capaian_manual = EXCLUDED.capaian_manual,
-            updated_at = CURRENT_TIMESTAMP
-        `,
+        INSERT INTO public.dashboard_capaian (
+          id,
+          capaian_manual,
+          indeks_capaian_manual,
+          indeks_capaian_mode,
+          updated_at
+        )
+        VALUES (1, $1, 0, 'OTOMATIS', CURRENT_TIMESTAMP)
+        ON CONFLICT (id) DO UPDATE SET
+          capaian_manual = EXCLUDED.capaian_manual,
+          updated_at = CURRENT_TIMESTAMP
+      `,
         [capaian]
       );
     }
 
-    // 3. Perbarui mode Indeks Capaian.
+    // 3. Perbarui mode indeks.
     const mode = body.indeks_capaian_mode as ModeIndeks | undefined;
 
     if (mode !== undefined) {
@@ -332,7 +289,7 @@ export async function PUT(request: Request) {
         return NextResponse.json(
           {
             ok: false,
-            message: "Mode Indeks Capaian harus MANUAL atau OTOMATIS.",
+            message: "Mode indeks harus MANUAL atau OTOMATIS.",
           },
           { status: 400 }
         );
@@ -341,12 +298,12 @@ export async function PUT(request: Request) {
       let nilaiManual: number | null = null;
 
       if (body.indeks_capaian_manual !== undefined) {
-        nilaiManual = Number(body.indeks_capaian_manual);
+        const kandidatManual = Number(body.indeks_capaian_manual);
 
         if (
-          !Number.isFinite(nilaiManual) ||
-          nilaiManual < 0 ||
-          nilaiManual > 120
+          !Number.isFinite(kandidatManual) ||
+          kandidatManual < 0 ||
+          kandidatManual > 120
         ) {
           return NextResponse.json(
             {
@@ -356,33 +313,28 @@ export async function PUT(request: Request) {
             { status: 400 }
           );
         }
+
+        nilaiManual = kandidatManual;
       }
 
       await pool.query(
         `
-          INSERT INTO dashboard_capaian (
-            id,
-            capaian_manual,
-            indeks_capaian_manual,
-            indeks_capaian_mode,
-            updated_at
-          )
-          VALUES (
-            1,
-            0,
-            COALESCE($2, 0),
-            $1,
-            CURRENT_TIMESTAMP
-          )
-          ON CONFLICT (id) DO UPDATE SET
-            indeks_capaian_manual =
-              COALESCE(
-                $2,
-                dashboard_capaian.indeks_capaian_manual
-              ),
-            indeks_capaian_mode = $1,
-            updated_at = CURRENT_TIMESTAMP
-        `,
+        INSERT INTO public.dashboard_capaian (
+          id,
+          capaian_manual,
+          indeks_capaian_manual,
+          indeks_capaian_mode,
+          updated_at
+        )
+        VALUES (1, 0, COALESCE($2, 0), $1, CURRENT_TIMESTAMP)
+        ON CONFLICT (id) DO UPDATE SET
+          indeks_capaian_manual = COALESCE(
+            $2,
+            public.dashboard_capaian.indeks_capaian_manual
+          ),
+          indeks_capaian_mode = EXCLUDED.indeks_capaian_mode,
+          updated_at = CURRENT_TIMESTAMP
+      `,
         [mode, nilaiManual]
       );
     }
@@ -395,7 +347,7 @@ export async function PUT(request: Request) {
         indeks_capaian_manual,
         indeks_capaian_mode,
         updated_at
-      FROM dashboard_capaian
+      FROM public.dashboard_capaian
       WHERE id = 1
       LIMIT 1
     `);
