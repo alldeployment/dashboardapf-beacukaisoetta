@@ -56,7 +56,7 @@ async function getOrCreateRumus() {
 // Mengambil atau membuat pengaturan capaian.
 async function getOrCreateCapaian() {
   await pool.query(`
-    INSERT INTO dashboard_capaian (
+    INSERT INTO public.dashboard_capaian (
       id,
       capaian_manual,
       indeks_capaian_manual,
@@ -74,7 +74,7 @@ async function getOrCreateCapaian() {
       indeks_capaian_manual,
       indeks_capaian_mode,
       updated_at
-    FROM dashboard_capaian
+    FROM public.dashboard_capaian
     WHERE id = 1
     LIMIT 1
   `);
