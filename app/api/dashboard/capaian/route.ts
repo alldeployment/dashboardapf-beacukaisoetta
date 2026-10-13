@@ -119,11 +119,6 @@ SELECT
   ) AS kolom_capaian
 `);
 
-    return NextResponse.json({
-      ok: true,
-      diagnostic: cek.rows[0],
-    });
-
     const [saved, rumusTersimpan, summary] = await Promise.all([
       getOrCreateCapaian(),
       getOrCreateRumus(),
