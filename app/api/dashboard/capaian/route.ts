@@ -20,6 +20,16 @@ function calculateCapaian(
   return (0.7 * tlBelumTuntas + tlSudahTuntas) / saldo;
 }
 
+async function ensureCapaianColumns() {
+  await pool.query(`
+    ALTER TABLE public.dashboard_capaian
+    ADD COLUMN IF NOT EXISTS indeks_capaian_manual
+      NUMERIC NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS indeks_capaian_mode
+      VARCHAR(20) NOT NULL DEFAULT 'OTOMATIS'
+  `);
+}
+
 // Mengambil pengaturan rumus aktif dari database.
 // Jika belum ada, gunakan rumus default.
 async function getOrCreateRumus() {
@@ -193,6 +203,7 @@ SELECT
 // PUT: menyimpan rumus atau memperbarui nilai capaian.
 export async function PUT(request: Request) {
   try {
+    await ensureCapaianColumns();
     const body = await request.json();
 
     // 1. Simpan rumus global.
