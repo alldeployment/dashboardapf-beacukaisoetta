@@ -106,14 +106,24 @@ async function getSummary() {
 export async function GET() {
   try {
     const cek = await pool.query(`
-    SELECT
-      current_database() AS database_name,
-      current_schema() AS schema_name,
-      to_regclass('public.dashboard_capaian') AS tabel_capaian,
-      to_regclass('public.pengaturan_rumus_capaian') AS tabel_rumus
-  `);
+SELECT
+  current_database() AS database_name,
+  current_schema() AS schema_name,
+  current_setting('search_path') AS search_path,
+  to_regclass('public.dashboard_capaian') AS tabel_capaian,
+  (
+    SELECT string_agg(column_name, ', ' ORDER BY ordinal_position)
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'dashboard_capaian'
+  ) AS kolom_capaian
+`);
 
-    console.log("CEK DATABASE CAPAIAN:", cek.rows[0]);
+    return NextResponse.json({
+      ok: true,
+      diagnostic: cek.rows[0],
+    });
+
     const [saved, rumusTersimpan, summary] = await Promise.all([
       getOrCreateCapaian(),
       getOrCreateRumus(),
