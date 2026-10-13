@@ -50,6 +50,9 @@ export default function DashboardPage() {
     capaian_manual: number;
     capaian_otomatis: number;
     indeks_capaian: number;
+    indeks_capaian_manual: number;
+    indeks_capaian_otomatis: number;
+    indeks_capaian_mode: "MANUAL" | "OTOMATIS";
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -74,6 +77,9 @@ export default function DashboardPage() {
       const summaryJson = await summaryRes.json();
       const recommendationJson = await recommendationRes.json();
       const capaianJson = await capaianRes.json();
+
+      console.log("Status API Capaian:", capaianRes.status);
+      console.log("Data API Capaian:", capaianJson);
 
       if (!summaryRes.ok || !summaryJson?.ok) {
         throw new Error(
@@ -189,10 +195,15 @@ export default function DashboardPage() {
     capaianData?.capaian_otomatis ?? summary?.capaian
   );
 
-  const capaianPersen = Math.min(
-    100,
-    Math.max(0, Math.round(capaianOtomatis * 100))
+  const capaianPersen = Math.round(capaianOtomatis * 100);
+
+  // API mengirim indeks dalam bentuk rasio.
+  // Contoh: 0.75 = 75%, sedangkan 1.2 = 120%.
+  const indeksCapaianPersen = Math.round(
+    safeNumber(capaianData?.indeks_capaian) * 100
   );
+
+  const indeksCapaianBar = Math.min(120, Math.max(0, indeksCapaianPersen));
   /*
   ============================================================
   BPK
@@ -237,53 +248,80 @@ export default function DashboardPage() {
 
   const persentaseBelumTl = safePercentage(itjenData.belumTl, itjenData.total);
 
-  const recentData = Array.from(
-    new Map(
-      recommendations.map((item) => {
-        const group = recommendations.filter(
-          (rec) =>
-            rec.source === item.source && rec.lha_number === item.lha_number
-        );
+  const normalizeFollowUpStatus = (value: string) => {
+    const status = (value ?? "").trim().toUpperCase();
 
-        /*
-         * STATUS FOLDER / LHA
-         *
-         * Jika masih ada satu saja BELUM_TL
-         * → Belum TL
-         *
-         * Jika tidak ada BELUM_TL tetapi masih ada
-         * SUDAH_TL / BELUM_TUNTAS
-         * → Sudah TL
-         *
-         * Jika semua sudah SUDAH_TUNTAS
-         * → Sudah Tuntas
-         */
+    if (status === "BELUM_TUNTAS") return "SUDAH_TL";
 
-        let folderStatus = "SUDAH_TUNTAS";
+    return status;
+  };
 
-        if (group.some((rec) => rec.follow_up_status === "BELUM_TL")) {
-          folderStatus = "BELUM_TL";
-        } else if (
-          group.some(
-            (rec) =>
-              rec.follow_up_status === "SUDAH_TL" ||
-              rec.follow_up_status === "BELUM_TUNTAS"
-          )
-        ) {
-          folderStatus = "SUDAH_TL";
-        }
+  const groupedRecommendations = new Map<
+    string,
+    { item: Recommendation; group: Recommendation[] }
+  >();
 
-        return [
-          `${item.source}-${item.lha_number}`,
-          {
-            ...item,
-            recommendation_count: group.length,
-            follow_up_status: folderStatus,
-          },
-        ];
-      })
-    ).values()
-  ).slice(0, 5);
+  for (const item of recommendations) {
+    const source = (item.source ?? "").trim().toUpperCase();
+    const lhaNumber = (item.lha_number ?? "").trim();
+
+    // Jika nomor LHA kosong, pisahkan berdasarkan ID rekomendasi.
+    const key = lhaNumber
+      ? `${source}::${lhaNumber}`
+      : `${source}::ID-${item.id}`;
+
+    const existing = groupedRecommendations.get(key);
+
+    if (existing) {
+      existing.group.push(item);
+    } else {
+      groupedRecommendations.set(key, {
+        item,
+        group: [item],
+      });
+    }
+  }
+
+  const recentData = Array.from(groupedRecommendations.values())
+    .map(({ item, group }) => {
+      const statuses = group.map((rec) =>
+        normalizeFollowUpStatus(rec.follow_up_status)
+      );
+
+      const belumTlCount = statuses.filter(
+        (status) => status === "BELUM_TL"
+      ).length;
+
+      const sudahTlCount = statuses.filter(
+        (status) => status === "SUDAH_TL"
+      ).length;
+
+      const sudahTuntasCount = statuses.filter(
+        (status) => status === "SUDAH_TUNTAS"
+      ).length;
+
+      let folderStatus = "SUDAH_TUNTAS";
+
+      if (belumTlCount > 0) {
+        folderStatus = "BELUM_TL";
+      } else if (sudahTlCount > 0) {
+        folderStatus = "SUDAH_TL";
+      }
+
+      const dateValue = new Date(item.lha_date).getTime();
+
+      return {
+        ...item,
+        recommendation_count: group.length,
+        follow_up_status: folderStatus,
+        belumTlCount,
+        sudahTlCount,
+        sudahTuntasCount,
+        sortDate: Number.isFinite(dateValue) ? dateValue : 0,
+      };
+    })
+    .sort((a, b) => b.sortDate - a.sortDate)
+    .slice(0, 5);
 
   /*
   ============================================================
@@ -302,7 +340,6 @@ export default function DashboardPage() {
 
       <div className="relative z-10 min-h-screen bg-white/5 px-6 py-8 lg:px-8">
         {/* HEADER */}
-
         <section className="mb-8">
           <div className="flex flex-col justify-between gap-5 xl:flex-row xl:items-end">
             <div>
@@ -341,17 +378,13 @@ export default function DashboardPage() {
             </div>
           </div>
         </section>
-
         {/* ERROR */}
-
         {error && (
           <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700 shadow-lg">
             {error}
           </div>
         )}
-
         {/* EXECUTIVE SUMMARY */}
-
         <section className="mb-6">
           <div className="mb-4">
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#F0C85A]">
@@ -453,44 +486,76 @@ export default function DashboardPage() {
             </div>
           </div>
         </section>
+
         {/* CAPAIAN KESELURUHAN */}
-
         <section className="mb-6">
-          <div className="rounded-2xl border border-white/10 bg-white/95 p-6 shadow-xl">
-            <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#9B7518]">
-                  Capaian Keseluruhan
-                </p>
-
-                <h2 className="mt-1 text-xl font-bold text-[#071426]">
-                  Indeks Capaian Tindak Lanjut
-                </h2>
-
-                <p className="mt-2 text-sm text-slate-400">
-                  Perhitungan berdasarkan bobot tindak lanjut rekomendasi.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-5">
-                <div className="h-4 w-56 overflow-hidden rounded-full bg-slate-100">
-                  <div
-                    className="h-full rounded-full bg-[#D4A72C] transition-all"
-                    style={{
-                      width: `${capaianPersen}%`,
-                    }}
-                  />
+          <div className="grid gap-4 lg:grid-cols-2">
+            {/* CAPAIAN OTOMATIS BERDASARKAN RUMUS */}
+            <div className="rounded-2xl border border-white/10 bg-white/95 p-6 shadow-xl">
+              <div className="flex flex-col gap-5">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#9B7518]">
+                    Capaian Otomatis
+                  </p>
+                  <h3 className="mt-1 text-xl font-bold text-[#071426]">
+                    Hasil Perhitungan Sistem
+                  </h3>
+                  <p className="mt-2 text-sm text-slate-500">
+                    Berdasarkan perhitungan capaian rekomendasi yang diterima
+                    dari sistem.
+                  </p>
                 </div>
 
-                <span className="min-w-[80px] text-right text-3xl font-bold text-[#071426]">
-                  {loading ? "—" : `${capaianPersen}%`}
-                </span>
+                <div className="flex items-center gap-4">
+                  <div className="h-4 flex-1 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="h-full rounded-full bg-blue-600 transition-all"
+                      style={{
+                        width: `${Math.min(100, Math.max(0, capaianPersen))}%`,
+                      }}
+                    />
+                  </div>
+                  <span className="min-w-[80px] text-right text-3xl font-bold text-[#071426]">
+                    {loading ? "—" : `${capaianPersen}%`}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* INDEKS CAPAIAN */}
+            <div className="rounded-2xl border border-white/10 bg-white/95 p-6 shadow-xl">
+              <div className="flex flex-col gap-5">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#9B7518]">
+                    Capaian Keseluruhan
+                  </p>
+                  <h3 className="mt-1 text-xl font-bold text-[#071426]">
+                    Indeks Capaian Tindak Lanjut
+                  </h3>
+                  <p className="mt-2 text-sm text-slate-500">
+                    Nilai indeks capaian keseluruhan yang tersimpan pada sistem.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-4">
+                  <div className="h-4 flex-1 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="h-full rounded-full bg-[#D4A72C] transition-all"
+                      style={{
+                        width: `${(indeksCapaianBar / 120) * 100}%`,
+                      }}
+                    />
+                  </div>
+                  <span className="min-w-[80px] text-right text-3xl font-bold text-[#071426]">
+                    {loading ? "—" : `${indeksCapaianPersen}%`}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
         </section>
-        {/* BPK */}
 
+        {/* BPK */}
         <section className="mb-6">
           <div className="mb-4">
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#F0C85A]">
@@ -658,9 +723,7 @@ export default function DashboardPage() {
             </div>
           </div>
         </section>
-
         {/* ITJEN */}
-
         <section className="mb-6">
           <div className="mb-4">
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#F0C85A]">
@@ -798,9 +861,7 @@ export default function DashboardPage() {
             </div>
           </div>
         </section>
-
         {/* RECENT ACTIVITY */}
-
         <section className="overflow-hidden rounded-2xl border border-white/10 bg-white/95 shadow-xl">
           <div className="border-b border-slate-100 px-6 py-5">
             <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
@@ -845,31 +906,35 @@ export default function DashboardPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[850px] text-left">
+              <table className="w-full min-w-[1100px] text-left">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/70">
                     <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                       No
                     </th>
-
                     <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                       Sumber
                     </th>
-
                     <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                       LHA / LHP
                     </th>
-
                     <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                       Tanggal
                     </th>
-
                     <th className="px-6 py-4 text-center text-[10px] font-bold uppercase tracking-wider text-slate-400">
                       Rek.
                     </th>
-
                     <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                       Status
+                    </th>
+                    <th className="px-4 py-4 text-center text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Belum TL
+                    </th>
+                    <th className="px-4 py-4 text-center text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Sudah TL
+                    </th>
+                    <th className="px-4 py-4 text-center text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Sudah Tuntas
                     </th>
                   </tr>
                 </thead>
@@ -925,6 +990,24 @@ export default function DashboardPage() {
                           {getStatusLabel(item.follow_up_status)}
                         </span>
                       </td>
+
+                      <td className="px-4 py-4 text-center">
+                        <span className="inline-flex min-w-9 justify-center rounded-lg bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700">
+                          {item.belumTlCount}
+                        </span>
+                      </td>
+
+                      <td className="px-4 py-4 text-center">
+                        <span className="inline-flex min-w-9 justify-center rounded-lg bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700">
+                          {item.sudahTlCount}
+                        </span>
+                      </td>
+
+                      <td className="px-4 py-4 text-center">
+                        <span className="inline-flex min-w-9 justify-center rounded-lg bg-green-50 px-3 py-1.5 text-xs font-bold text-green-700">
+                          {item.sudahTuntasCount}
+                        </span>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -932,9 +1015,7 @@ export default function DashboardPage() {
             </div>
           )}
         </section>
-
         {/* FOOTER */}
-
         <div className="py-8 text-center">
           <p className="text-xs text-white/50">
             APF Monitoring Center • Bea Cukai Soekarno-Hatta

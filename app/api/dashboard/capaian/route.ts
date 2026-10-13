@@ -135,8 +135,12 @@ export async function GET() {
 
     const indeksCapaianManual = Number(saved?.indeks_capaian_manual ?? 0);
 
-    const indeksCapaian =
+    const indeksCapaianMentah =
       mode === "MANUAL" ? indeksCapaianManual / 100 : indeksCapaianOtomatis;
+
+    const indeksCapaian = Number.isFinite(indeksCapaianMentah)
+      ? Math.max(0, indeksCapaianMentah)
+      : 0;
 
     return NextResponse.json({
       ok: true,
