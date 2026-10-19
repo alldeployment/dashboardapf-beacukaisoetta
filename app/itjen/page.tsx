@@ -68,19 +68,20 @@ export default function ItjenPage() {
 
       const recommendationJson = await recommendationRes.json();
       const summaryJson = await summaryRes.json();
+      console.log("Data rekomendasi ITJEN:", recommendationJson.data);
+      console.log("Data summary dashboard:", summaryJson.data);
 
       const itjenData: Recommendation[] = (
         recommendationJson.data || []
       ).filter((item: Recommendation) => item.source === "ITJEN");
 
       setData(itjenData);
-
       if (summaryJson?.data?.itjen) {
         setSummary({
           total: Number(summaryJson.data.itjen.total || 0),
-          selesai: Number(summaryJson.data.itjen.selesai || 0),
-          proses: Number(summaryJson.data.itjen.proses || 0),
-          belum: Number(summaryJson.data.itjen.belum || 0),
+          selesai: Number(summaryJson.data.itjen.sudahTuntas || 0),
+          proses: Number(summaryJson.data.itjen.sudahTl || 0),
+          belum: Number(summaryJson.data.itjen.belumTl || 0),
         });
       } else {
         const countStatus = (status: string) =>
@@ -97,7 +98,7 @@ export default function ItjenPage() {
             0
           ),
           selesai: countStatus("SUDAH_TUNTAS"),
-          proses: countStatus("BELUM_TUNTAS"),
+          proses: countStatus("SUDAH_TL"),
           belum: countStatus("BELUM_TL"),
         });
       }
@@ -116,11 +117,6 @@ export default function ItjenPage() {
   }, []);
 
   function editData(item: Recommendation) {
-    if (item.follow_up_status === "SUDAH_TUNTAS") {
-      alert("Data yang sudah tuntas tidak dapat diedit.");
-      return;
-    }
-
     setSelected(null);
     setEditing(item);
     setShowForm(true);
@@ -197,16 +193,14 @@ export default function ItjenPage() {
       return matchesSearch && matchesStatus && matchesCategory;
     });
   }, [data, search, statusFilter, categoryFilter]);
+  const selesaiPercentage =
+    summary.total > 0 ? Math.round((summary.selesai / summary.total) * 100) : 0;
 
-  const percentage = (value: number) =>
-    summary.total > 0
-      ? Math.round((Number(value) / Number(summary.total)) * 100)
-      : 0;
+  const prosesPercentage =
+    summary.total > 0 ? Math.round((summary.proses / summary.total) * 100) : 0;
 
-  const selesaiPercentage = percentage(summary.selesai);
-  const prosesPercentage = percentage(summary.proses);
-  const belumPercentage = percentage(summary.belum);
-
+  const belumPercentage =
+    summary.total > 0 ? Math.round((summary.belum / summary.total) * 100) : 0;
   const formatDate = (date?: string | null) => {
     if (!date) return "-";
 
@@ -738,9 +732,7 @@ export default function ItjenPage() {
                     <th className="px-6 py-4 text-center text-xs font-semibold uppercase tracking-wider text-slate-500">
                       No. Temuan
                     </th>
-                    <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                      Rekomendasi
-                    </th>
+
                     <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">
                       Tindak Lanjut
                     </th>
@@ -796,16 +788,6 @@ export default function ItjenPage() {
                         </span>
                       </td>
 
-                      {/* JUMLAH REKOMENDASI */}
-                      <td className="px-6 py-5">
-                        <span className="font-bold text-[#071426]">
-                          {Number(item.recommendation_count || 0)}
-                        </span>
-                        <span className="ml-1 text-xs text-slate-400">
-                          rekomendasi
-                        </span>
-                      </td>
-
                       <td className="px-6 py-5">
                         <span
                           className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-semibold ${getStatusStyle(
@@ -832,7 +814,6 @@ export default function ItjenPage() {
                           </button>
                           <button
                             onClick={() => editData(item)}
-                            disabled={item.follow_up_status === "SUDAH_TUNTAS"}
                             className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             Edit
@@ -1066,7 +1047,6 @@ export default function ItjenPage() {
                 <button
                   type="button"
                   onClick={() => editData(selected)}
-                  disabled={selected.follow_up_status === "SUDAH_TUNTAS"}
                   className="flex-1 rounded-xl bg-[#071426] py-3 text-sm font-bold text-white transition hover:bg-[#10243e] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Edit Data

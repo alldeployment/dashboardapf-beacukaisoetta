@@ -58,40 +58,49 @@ export async function GET() {
      */
 
     const bpkResult = await pool.query(`
-      SELECT
-        COUNT(*)::int AS total,
+SELECT
+  COUNT(*)::int AS total,
 
-        COUNT(*) FILTER (
-          WHERE saldo_status = 'MASUK_SALDO'
-        )::int AS masuk_saldo,
+  COUNT(*) FILTER (
+    WHERE saldo_status = 'MASUK_SALDO'
+  )::int AS masuk_saldo,
 
-        COUNT(*) FILTER (
-          WHERE saldo_status = 'BELUM_SALDO'
-        )::int AS belum_saldo,
+  COUNT(*) FILTER (
+    WHERE saldo_status = 'BELUM_SALDO'
+  )::int AS belum_saldo,
 
-        COUNT(*) FILTER (
-          WHERE category = 'Laporan Keuangan'
-        )::int AS keuangan,
+  
+  COUNT(*) FILTER (
+    WHERE UPPER(TRIM(COALESCE(category, '')))
+      IN ('KEUANGAN', 'LAPORAN KEUANGAN')
+  )::int AS keuangan,
 
-        COUNT(*) FILTER (
-          WHERE category = 'Bukan Keuangan'
-        )::int AS bukan_keuangan,
+  COUNT(*) FILTER (
+    WHERE UPPER(TRIM(COALESCE(category, '')))
+      IN (
+        'BUKAN_KEUANGAN',
+        'BUKAN KEUANGAN',
+        'NON KEUANGAN',
+        'PEMERIKSAAN NON KEUANGAN'
+      )
+  )::int AS bukan_keuangan,
 
-        COUNT(*) FILTER (
-          WHERE follow_up_status = 'BELUM_TL'
-        )::int AS belum_tl,
 
-        COUNT(*) FILTER (
-          WHERE follow_up_status = 'SUDAH_TL'
-        )::int AS tl_belum_tuntas,
+  COUNT(*) FILTER (
+    WHERE follow_up_status = 'BELUM_TL'
+  )::int AS belum_tl,
 
-        COUNT(*) FILTER (
-          WHERE follow_up_status = 'SUDAH_TUNTAS'
-        )::int AS tl_sudah_tuntas
+  COUNT(*) FILTER (
+    WHERE follow_up_status = 'SUDAH_TL'
+  )::int AS tl_belum_tuntas,
 
-      FROM recommendations
-      WHERE source = 'BPK'
-    `);
+  COUNT(*) FILTER (
+    WHERE follow_up_status = 'SUDAH_TUNTAS'
+  )::int AS tl_sudah_tuntas
+
+FROM recommendations
+WHERE UPPER(TRIM(COALESCE(source, ''))) = 'BPK'
+`);
 
     /*
      * =========================================================

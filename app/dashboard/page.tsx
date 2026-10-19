@@ -151,20 +151,29 @@ export default function DashboardPage() {
       year: "numeric",
     });
   };
-
-  const getStatusLabel = (status: string) => {
+  const getSaldoStatusLabel = (status: string) => {
     switch (status) {
-      case "SUDAH_TUNTAS":
-        return "Sudah Tuntas";
+      case "MASUK_SALDO":
+        return "Masuk Saldo";
 
-      case "SUDAH_TL":
-        return "Sudah TL";
+      case "BELUM_SALDO":
+        return "Belum Masuk Saldo";
 
-      case "BELUM_TL":
-        return "Belum TL";
+      case "TIDAK_RELEVAN":
+        return "Tidak Relevan";
 
       default:
-        return status ? status.replaceAll("_", " ") : "-";
+        return "Belum Diketahui";
+    }
+  };
+  const getSaldoStatusStyle = (status: string) => {
+    switch ((status ?? "").trim().toUpperCase()) {
+      case "MASUK_SALDO":
+        return "bg-green-50 text-green-700 border-green-200";
+      case "BELUM_SALDO":
+        return "bg-orange-50 text-orange-700 border-orange-200";
+      default:
+        return "bg-slate-50 text-slate-500 border-slate-200";
     }
   };
 
@@ -191,6 +200,10 @@ export default function DashboardPage() {
   const belumTl = safeNumber(summary?.belumTl);
   const sudahTl = safeNumber(summary?.sudahTl);
   const sudahTuntas = safeNumber(summary?.sudahTuntas);
+  // RINGKASAN SALDO GLOBAL
+  const masukSaldoGlobal = safeNumber(summary?.masukSaldo);
+  const belumSaldoGlobal = safeNumber(summary?.belumSaldo);
+  const persentaseSaldoGlobal = safeNumber(summary?.persentaseSaldo);
   const capaianOtomatis = safeNumber(
     capaianData?.capaian_otomatis ?? summary?.capaian
   );
@@ -482,6 +495,64 @@ export default function DashboardPage() {
 
               <p className="mt-2 text-xs text-slate-400">
                 Tindak lanjut telah selesai
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* RINGKASAN SALDO GLOBAL - TAMBAHAN BARU */}
+        <section className="mb-6">
+          <div className="mb-4">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#F0C85A]"></p>
+            <h2 className="mt-1 text-xl font-bold text-white">
+              Status Saldo Seluruh Rekomendasi
+            </h2>
+            <p className="mt-1 text-sm text-white/70">
+              Rekapitulasi saldo rekomendasi BPK dan ITJEN secara keseluruhan.
+            </p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            {/* MASUK SALDO */}
+            <div className="rounded-2xl border border-green-100 bg-white/95 p-5 shadow-xl">
+              <p className="text-xs font-bold uppercase tracking-wider text-green-700">
+                Masuk Saldo
+              </p>
+              <p className="mt-3 text-3xl font-bold text-green-600">
+                {loading ? "—" : masukSaldoGlobal.toLocaleString("id-ID")}
+              </p>
+              <p className="mt-2 text-xs text-slate-500">
+                Total rekomendasi yang masuk saldo
+              </p>
+            </div>
+
+            {/* BELUM MASUK SALDO */}
+            <div className="rounded-2xl border border-orange-100 bg-white/95 p-5 shadow-xl">
+              <p className="text-xs font-bold uppercase tracking-wider text-orange-700">
+                Belum Masuk Saldo
+              </p>
+              <p className="mt-3 text-3xl font-bold text-orange-600">
+                {loading ? "—" : belumSaldoGlobal.toLocaleString("id-ID")}
+              </p>
+              <p className="mt-2 text-xs text-slate-500">
+                Total rekomendasi yang belum masuk saldo
+              </p>
+            </div>
+
+            {/* PERSENTASE SALDO */}
+            <div className="rounded-2xl border border-blue-100 bg-white/95 p-5 shadow-xl">
+              <p className="text-xs font-bold uppercase tracking-wider text-blue-700">
+                Persentase Saldo
+              </p>
+              <p className="mt-3 text-3xl font-bold text-blue-600">
+                {loading
+                  ? "—"
+                  : `${persentaseSaldoGlobal.toLocaleString("id-ID", {
+                      maximumFractionDigits: 2,
+                    })}%`}
+              </p>
+              <p className="mt-2 text-xs text-slate-500">
+                Persentase rekomendasi yang masuk saldo
               </p>
             </div>
           </div>
@@ -983,11 +1054,11 @@ export default function DashboardPage() {
 
                       <td className="px-6 py-4">
                         <span
-                          className={`inline-flex rounded-lg border px-3 py-1.5 text-xs font-semibold ${getStatusStyle(
-                            item.follow_up_status
+                          className={`inline-flex rounded-lg border px-3 py-1.5 text-xs font-semibold ${getSaldoStatusStyle(
+                            item.saldo_status
                           )}`}
                         >
-                          {getStatusLabel(item.follow_up_status)}
+                          {getSaldoStatusLabel(item.saldo_status)}
                         </span>
                       </td>
 
