@@ -160,7 +160,13 @@ WHERE UPPER(TRIM(COALESCE(source, ''))) = 'BPK'
      * =========================================================
      */
 
-    const persentaseSaldo = total > 0 ? (masukSaldo / total) * 100 : 0;
+    const persentaseSaldo =
+      total > 0
+        ? ((tlBelumTuntas * WEIGHTS.TL_BELUM_TUNTAS +
+            tlSudahTuntas * WEIGHTS.TL_SUDAH_TUNTAS) /
+            total) *
+          100
+        : 0;
 
     const persentaseBelumSaldo = total > 0 ? (belumSaldo / total) * 100 : 0;
 

@@ -500,64 +500,6 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        {/* RINGKASAN SALDO GLOBAL - TAMBAHAN BARU */}
-        <section className="mb-6">
-          <div className="mb-4">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#F0C85A]"></p>
-            <h2 className="mt-1 text-xl font-bold text-white">
-              Status Saldo Seluruh Rekomendasi
-            </h2>
-            <p className="mt-1 text-sm text-white/70">
-              Rekapitulasi saldo rekomendasi BPK dan ITJEN secara keseluruhan.
-            </p>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-3">
-            {/* MASUK SALDO */}
-            <div className="rounded-2xl border border-green-100 bg-white/95 p-5 shadow-xl">
-              <p className="text-xs font-bold uppercase tracking-wider text-green-700">
-                Masuk Saldo
-              </p>
-              <p className="mt-3 text-3xl font-bold text-green-600">
-                {loading ? "—" : masukSaldoGlobal.toLocaleString("id-ID")}
-              </p>
-              <p className="mt-2 text-xs text-slate-500">
-                Total rekomendasi yang masuk saldo
-              </p>
-            </div>
-
-            {/* BELUM MASUK SALDO */}
-            <div className="rounded-2xl border border-orange-100 bg-white/95 p-5 shadow-xl">
-              <p className="text-xs font-bold uppercase tracking-wider text-orange-700">
-                Belum Masuk Saldo
-              </p>
-              <p className="mt-3 text-3xl font-bold text-orange-600">
-                {loading ? "—" : belumSaldoGlobal.toLocaleString("id-ID")}
-              </p>
-              <p className="mt-2 text-xs text-slate-500">
-                Total rekomendasi yang belum masuk saldo
-              </p>
-            </div>
-
-            {/* PERSENTASE SALDO */}
-            <div className="rounded-2xl border border-blue-100 bg-white/95 p-5 shadow-xl">
-              <p className="text-xs font-bold uppercase tracking-wider text-blue-700">
-                Persentase Saldo
-              </p>
-              <p className="mt-3 text-3xl font-bold text-blue-600">
-                {loading
-                  ? "—"
-                  : `${persentaseSaldoGlobal.toLocaleString("id-ID", {
-                      maximumFractionDigits: 2,
-                    })}%`}
-              </p>
-              <p className="mt-2 text-xs text-slate-500">
-                Persentase rekomendasi yang masuk saldo
-              </p>
-            </div>
-          </div>
-        </section>
-
         {/* CAPAIAN KESELURUHAN */}
         <section className="mb-6">
           <div className="grid gap-4 lg:grid-cols-2">
@@ -622,6 +564,63 @@ export default function DashboardPage() {
                   </span>
                 </div>
               </div>
+            </div>
+          </div>
+        </section>
+        {/* RINGKASAN SALDO GLOBAL - TAMBAHAN BARU */}
+        <section className="mb-6">
+          <div className="mb-4">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#F0C85A]"></p>
+            <h2 className="mt-1 text-xl font-bold text-white">
+              Status Saldo Seluruh Rekomendasi
+            </h2>
+            <p className="mt-1 text-sm text-white/70">
+              Rekapitulasi saldo rekomendasi BPK dan ITJEN secara keseluruhan.
+            </p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            {/* MASUK SALDO */}
+            <div className="rounded-2xl border border-green-100 bg-white/95 p-5 shadow-xl">
+              <p className="text-xs font-bold uppercase tracking-wider text-green-700">
+                Masuk Saldo
+              </p>
+              <p className="mt-3 text-3xl font-bold text-green-600">
+                {loading ? "—" : masukSaldoGlobal.toLocaleString("id-ID")}
+              </p>
+              <p className="mt-2 text-xs text-slate-500">
+                Total rekomendasi yang masuk saldo
+              </p>
+            </div>
+
+            {/* BELUM MASUK SALDO */}
+            <div className="rounded-2xl border border-orange-100 bg-white/95 p-5 shadow-xl">
+              <p className="text-xs font-bold uppercase tracking-wider text-orange-700">
+                Belum Masuk Saldo
+              </p>
+              <p className="mt-3 text-3xl font-bold text-orange-600">
+                {loading ? "—" : belumSaldoGlobal.toLocaleString("id-ID")}
+              </p>
+              <p className="mt-2 text-xs text-slate-500">
+                Total rekomendasi yang belum masuk saldo
+              </p>
+            </div>
+
+            {/* PERSENTASE SALDO */}
+            <div className="rounded-2xl border border-blue-100 bg-white/95 p-5 shadow-xl">
+              <p className="text-xs font-bold uppercase tracking-wider text-blue-700">
+                Persentase Saldo
+              </p>
+              <p className="mt-3 text-3xl font-bold text-blue-600">
+                {loading
+                  ? "—"
+                  : `${persentaseSaldoGlobal.toLocaleString("id-ID", {
+                      maximumFractionDigits: 2,
+                    })}%`}
+              </p>
+              <p className="mt-2 text-xs text-slate-500">
+                Persentase rekomendasi yang masuk saldo
+              </p>
             </div>
           </div>
         </section>
