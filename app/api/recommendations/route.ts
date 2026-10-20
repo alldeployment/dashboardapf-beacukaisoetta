@@ -99,6 +99,32 @@ async function carryOverUnfinishedRecommendations(targetYear: number) {
 
   const previousYear = targetYear - 1;
 
+  // Bersihkan carry-over ke periode tujuan jika rekomendasi
+  // asal sudah tuntas. Data asli periode sebelumnya tetap aman.
+  await pool.query(
+    `
+    DELETE FROM public.recommendations AS carried
+    USING public.recommendations AS previous
+    WHERE carried.tahun_periode = $2
+      AND previous.tahun_periode = $1
+      AND UPPER(TRIM(COALESCE(previous.follow_up_status, '')))
+          = 'SUDAH_TUNTAS'
+      AND (
+        carried.asal_recommendation_id = previous.id
+        OR (
+          carried.asal_recommendation_id IS NULL
+          AND carried.source = previous.source
+          AND carried.category = previous.category
+          AND carried.lha_number = previous.lha_number
+          AND carried.lha_date IS NOT DISTINCT FROM previous.lha_date
+          AND carried.recommendation_number
+              IS NOT DISTINCT FROM previous.recommendation_number
+        )
+      )
+    `,
+    [previousYear, targetYear]
+  );
+
   await pool.query(
     `
     INSERT INTO public.recommendations (
@@ -249,7 +275,35 @@ export async function GET(request: NextRequest) {
       values.push(year);
       conditions.push(`tahun_periode = $${values.length}`);
     }
+    // Jangan tampilkan carry-over jika sumber periode sebelumnya
+    // sudah berstatus tuntas.
+    if (yearParam !== null && Number(yearParam) > 2026) {
+      values.push(Number(yearParam) - 1);
+      const previousYearPlaceholder = `$${values.length}`;
 
+      conditions.push(`
+          NOT EXISTS (
+            SELECT 1
+            FROM public.recommendations previous
+            WHERE previous.tahun_periode = ${previousYearPlaceholder}
+              AND UPPER(TRIM(COALESCE(previous.follow_up_status, '')))
+                  = 'SUDAH_TUNTAS'
+              AND (
+                current_rec.asal_recommendation_id = previous.id
+                OR (
+                  current_rec.asal_recommendation_id IS NULL
+                  AND current_rec.source = previous.source
+                  AND current_rec.category = previous.category
+                  AND current_rec.lha_number = previous.lha_number
+                  AND current_rec.lha_date
+                      IS NOT DISTINCT FROM previous.lha_date
+                  AND current_rec.recommendation_number
+                      IS NOT DISTINCT FROM previous.recommendation_number
+                )
+              )
+          )
+        `);
+    }
     if (lhaNumber) {
       values.push(lhaNumber);
       conditions.push(`lha_number = $${values.length}`);
@@ -288,7 +342,7 @@ export async function GET(request: NextRequest) {
         capaian,
         created_at,
         updated_at
-      FROM recommendations
+        FROM public.recommendations AS current_rec
     `;
 
     if (conditions.length > 0) {
