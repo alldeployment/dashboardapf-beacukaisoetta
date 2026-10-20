@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 
 type Summary = {
   total: number;
@@ -46,6 +47,9 @@ type Recommendation = {
 export default function DashboardPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  const router = useRouter();
+  const pathname = usePathname();
+  const [yearReady, setYearReady] = useState(false);
   const [capaianData, setCapaianData] = useState<{
     capaian_manual: number;
     capaian_otomatis: number;
@@ -56,20 +60,24 @@ export default function DashboardPage() {
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [selectedYear, setSelectedYear] = useState(2026);
+  const [yearInput, setYearInput] = useState("2026");
 
-  async function loadDashboard() {
+  const loadDashboard = useCallback(async (year: number) => {
     try {
       setLoading(true);
       setError("");
 
+      const query = `?year=${year}`;
+
       const [summaryRes, recommendationRes, capaianRes] = await Promise.all([
-        fetch("/api/dashboard/summary", {
+        fetch(`/api/dashboard/summary${query}`, {
           cache: "no-store",
         }),
-        fetch("/api/recommendations", {
+        fetch(`/api/recommendations${query}`, {
           cache: "no-store",
         }),
-        fetch("/api/dashboard/capaian", {
+        fetch(`/api/dashboard/capaian${query}`, {
           cache: "no-store",
         }),
       ]);
@@ -77,9 +85,6 @@ export default function DashboardPage() {
       const summaryJson = await summaryRes.json();
       const recommendationJson = await recommendationRes.json();
       const capaianJson = await capaianRes.json();
-
-      console.log("Status API Capaian:", capaianRes.status);
-      console.log("Data API Capaian:", capaianJson);
 
       if (!summaryRes.ok || !summaryJson?.ok) {
         throw new Error(
@@ -91,6 +96,10 @@ export default function DashboardPage() {
         throw new Error(
           recommendationJson?.message || "Gagal mengambil data rekomendasi"
         );
+      }
+
+      if (!capaianRes.ok || !capaianJson?.ok) {
+        throw new Error(capaianJson?.message || "Gagal mengambil data capaian");
       }
 
       setSummary(summaryJson.data ?? null);
@@ -105,17 +114,43 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }
-
+  }, []);
   useEffect(() => {
-    loadDashboard();
+    const params = new URLSearchParams(window.location.search);
+    const yearParam = params.get("year");
+    const savedYear = localStorage.getItem("apfMonitoringYear");
+
+    const isValidYear = (value: string | null) => {
+      if (!value || !/^\d{4}$/.test(value)) return false;
+
+      const year = Number(value);
+      return year >= 2026 && year <= 9998;
+    };
+
+    const yearToUse = isValidYear(yearParam)
+      ? yearParam!
+      : isValidYear(savedYear)
+      ? savedYear!
+      : "2026";
+
+    setSelectedYear(Number(yearToUse));
+    setYearInput(yearToUse);
+
+    localStorage.setItem("apfMonitoringYear", yearToUse);
+
+    setYearReady(true);
+  }, []);
+  useEffect(() => {
+    if (!yearReady) return;
+
+    void loadDashboard(selectedYear);
 
     const interval = setInterval(() => {
-      loadDashboard();
+      void loadDashboard(selectedYear);
     }, 30000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [selectedYear, loadDashboard, yearReady]);
 
   const safeNumber = (value: unknown): number => {
     const number = Number(value);
@@ -151,19 +186,20 @@ export default function DashboardPage() {
       year: "numeric",
     });
   };
-  const getSaldoStatusLabel = (status: string) => {
+
+  const getStatusLabel = (status: string) => {
     switch (status) {
-      case "MASUK_SALDO":
-        return "Masuk Saldo";
+      case "SUDAH_TUNTAS":
+        return "Sudah Tuntas";
 
-      case "BELUM_SALDO":
-        return "Belum Masuk Saldo";
+      case "SUDAH_TL":
+        return "Sudah TL";
 
-      case "TIDAK_RELEVAN":
-        return "Tidak Relevan";
+      case "BELUM_TL":
+        return "Belum TL";
 
       default:
-        return "Belum Diketahui";
+        return status ? status.replaceAll("_", " ") : "-";
     }
   };
   const getSaldoStatusStyle = (status: string) => {
@@ -223,13 +259,31 @@ export default function DashboardPage() {
   ============================================================
   */
 
+  const bpkRecommendations = recommendations.filter(
+    (item) => (item.source ?? "").trim().toUpperCase() === "BPK"
+  );
+  
   const bpkData = {
-    total: safeNumber(summary?.bpk?.total),
-    masukSaldo: safeNumber(summary?.bpk?.masukSaldo),
-    belumSaldo: safeNumber(summary?.bpk?.belumSaldo),
-    keuangan: safeNumber(summary?.bpk?.keuangan),
-    bukanKeuangan: safeNumber(summary?.bpk?.bukanKeuangan),
-    persentaseSaldo: safeNumber(summary?.bpk?.persentaseSaldo),
+    total: bpkRecommendations.length,
+  
+    masukSaldo: bpkRecommendations.filter(
+      (item) =>
+        (item.saldo_status ?? "").trim().toUpperCase() === "MASUK_SALDO"
+    ).length,
+  
+    belumSaldo: bpkRecommendations.filter(
+      (item) =>
+        (item.saldo_status ?? "").trim().toUpperCase() === "BELUM_SALDO"
+    ).length,
+  
+    keuangan: bpkRecommendations.filter(
+      (item) => (item.category ?? "").trim().toUpperCase() === "KEUANGAN"
+    ).length,
+  
+    bukanKeuangan: bpkRecommendations.filter(
+      (item) =>
+        (item.category ?? "").trim().toUpperCase() === "BUKAN_KEUANGAN"
+    ).length,
   };
 
   const persentaseSaldo = safePercentage(bpkData.masukSaldo, bpkData.total);
@@ -374,16 +428,70 @@ export default function DashboardPage() {
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="flex flex-col gap-1.5">
+                <label
+                  htmlFor="dashboard-year"
+                  className="text-xs font-semibold text-white/70"
+                >
+                  Tahun Periode
+                </label>
+
+                <input
+                  id="dashboard-year"
+                  type="number"
+                  min={2026}
+                  max={9998}
+                  step={1}
+                  value={yearInput}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setYearInput(value);
+
+                    if (/^\d{4}$/.test(value)) {
+                      const year = Number(value);
+
+                      if (year >= 2026 && year <= 9998) {
+                        setSelectedYear(year);
+
+                        localStorage.setItem("apfMonitoringYear", String(year));
+
+                        const params = new URLSearchParams(
+                          window.location.search
+                        );
+                        params.set("year", String(year));
+
+                        router.replace(`${pathname}?${params.toString()}`, {
+                          scroll: false,
+                        });
+                      }
+                    }
+                  }}
+                  onBlur={() => {
+                    const year = Number(yearInput);
+
+                    if (
+                      !/^\d{4}$/.test(yearInput) ||
+                      !Number.isInteger(year) ||
+                      year < 2026 ||
+                      year > 9998
+                    ) {
+                      setYearInput(String(selectedYear));
+                    }
+                  }}
+                  className="min-w-[150px] rounded-xl border border-white/20 bg-[#10243D] px-4 py-3 text-sm font-semibold text-white outline-none transition focus:border-[#D4A72C]"
+                />
+              </div>
+
               <Link
-                href="/rekomendasi"
+                href={`/rekomendasi?year=${selectedYear}`}
                 className="rounded-xl bg-[#D4A72C] px-5 py-3 text-sm font-semibold text-[#071426] shadow-lg transition hover:bg-[#E5BA45]"
               >
                 + Tambah Rekomendasi
               </Link>
 
               <Link
-                href="/laporan"
+                href={`/laporan?year=${selectedYear}`}
                 className="rounded-xl border border-white/20 bg-white/10 px-5 py-3 text-sm font-semibold text-white backdrop-blur-md transition hover:bg-white/20"
               >
                 Lihat Laporan
@@ -499,7 +607,6 @@ export default function DashboardPage() {
             </div>
           </div>
         </section>
-
         {/* CAPAIAN KESELURUHAN */}
         <section className="mb-6">
           <div className="grid gap-4 lg:grid-cols-2">
@@ -567,6 +674,7 @@ export default function DashboardPage() {
             </div>
           </div>
         </section>
+
         {/* RINGKASAN SALDO GLOBAL - TAMBAHAN BARU */}
         <section className="mb-6">
           <div className="mb-4">
@@ -950,7 +1058,7 @@ export default function DashboardPage() {
               </div>
 
               <Link
-                href="/rekomendasi"
+                href={`/rekomendasi?year=${selectedYear}`}
                 className="text-sm font-semibold text-[#9B7518] hover:text-[#D4A72C]"
               >
                 Lihat Semua →
@@ -1057,7 +1165,11 @@ export default function DashboardPage() {
                             item.saldo_status
                           )}`}
                         >
-                          {getSaldoStatusLabel(item.saldo_status)}
+                          {item.saldo_status === "MASUK_SALDO"
+                            ? "Masuk Saldo"
+                            : item.saldo_status === "BELUM_SALDO"
+                            ? "Belum Saldo"
+                            : "-"}
                         </span>
                       </td>
 

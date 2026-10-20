@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import RecommendationForm from "@/components/RecommendationForm";
 
 type Recommendation = {
@@ -52,6 +52,31 @@ export default function BpkPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [selectedYear, setSelectedYear] = useState(2026);
+  const [yearReady, setYearReady] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlYear = params.get("year");
+    const savedYear = localStorage.getItem("apfMonitoringYear");
+
+    const isValidYear = (value: string | null) => {
+      if (!value || !/^\d{4}$/.test(value)) return false;
+
+      const year = Number(value);
+      return year >= 2026 && year <= 9998;
+    };
+
+    const yearToUse = isValidYear(urlYear)
+      ? urlYear!
+      : isValidYear(savedYear)
+      ? savedYear!
+      : "2026";
+
+    setSelectedYear(Number(yearToUse));
+    localStorage.setItem("apfMonitoringYear", yearToUse);
+    setYearReady(true);
+  }, []);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -61,17 +86,39 @@ export default function BpkPage() {
 
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Recommendation | null>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlYear = params.get("year");
+    const savedYear = localStorage.getItem("apfMonitoringYear");
 
-  async function loadData() {
+    const validYear = (value: string | null) => {
+      if (!value || !/^\d{4}$/.test(value)) return false;
+
+      const year = Number(value);
+      return year >= 2026 && year <= 9998;
+    };
+
+    const yearToUse = validYear(urlYear)
+      ? urlYear!
+      : validYear(savedYear)
+      ? savedYear!
+      : "2026";
+
+    setSelectedYear(Number(yearToUse));
+    localStorage.setItem("apfMonitoringYear", yearToUse);
+    setYearReady(true);
+  }, []);
+
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       setError("");
 
       const [recommendationRes, summaryRes] = await Promise.all([
-        fetch("/api/recommendations", {
+        fetch(`/api/recommendations?year=${selectedYear}`, {
           cache: "no-store",
         }),
-        fetch("/api/dashboard/summary", {
+        fetch(`/api/dashboard/summary?year=${selectedYear}`, {
           cache: "no-store",
         }),
       ]);
@@ -100,11 +147,12 @@ export default function BpkPage() {
     } finally {
       setLoading(false);
     }
-  }
-
+  }, [selectedYear]);
   useEffect(() => {
-    loadData();
-  }, []);
+    if (!yearReady) return;
+
+    void loadData();
+  }, [yearReady, loadData]);
 
   /*
    * EDIT DATA
@@ -1324,6 +1372,7 @@ export default function BpkPage() {
                 }}
                 editingData={editing}
                 onCancelEdit={closeForm}
+                selectedYear={selectedYear}
               />
             </div>
           </div>

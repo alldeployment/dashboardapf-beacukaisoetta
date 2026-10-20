@@ -7,24 +7,55 @@ const WEIGHTS = {
   TL_SUDAH_TUNTAS: 1,
 };
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     await pool.query("SELECT 1");
 
+    // Ambil tahun yang dipilih dari query parameter.
+    const { searchParams } = new URL(request.url);
+    const yearParam = searchParams.get("year");
+
+    const year =
+      yearParam === null ? new Date().getFullYear() : Number(yearParam);
+
+    if (!Number.isInteger(year) || year < 1900 || year > 9998) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: "Tahun periode tidak valid.",
+        },
+        { status: 400 }
+      );
+    }
+
     /*
-     * =========================================================
-     * SUMMARY SELURUH DATA
-     * =========================================================
+     * FILTER PERIODE
      *
-     * 1 baris pada tabel recommendations = 1 rekomendasi.
+     * Data dihitung berdasarkan tahun LHA/LHP.
+     * Contoh:
+     * year=2026 hanya mengambil LHA/LHP
+     * tanggal 1 Januari sampai sebelum 1 Januari 2027.
      *
-     * Capaian =
-     * ((TL Belum Tuntas × 70%) +
-     *  (TL Sudah Tuntas × 100%))
-     * / Total Rekomendasi
+     * $1 = tahun yang dipilih.
      */
 
-    const result = await pool.query(`
+    const periodFilter = `
+    tahun_periode = $1
+  `;
+    /*
+     * =========================================================
+     * SUMMARY SELURUH DATA PADA PERIODE TERPILIH
+     * =========================================================
+     *
+     * 1 baris pada recommendations = 1 rekomendasi.
+     *
+     * Capaian =
+     * ((Sudah TL × 70%) + (Sudah Tuntas × 100%))
+     * / Total rekomendasi
+     */
+
+    const result = await pool.query(
+      `
       SELECT
         COUNT(*)::int AS total,
 
@@ -48,67 +79,66 @@ export async function GET() {
           WHERE saldo_status = 'BELUM_SALDO'
         )::int AS belum_saldo
 
-      FROM recommendations
-    `);
+        FROM public.recommendations
+      WHERE ${periodFilter}
+      `,
+      [year]
+    );
 
     /*
      * =========================================================
-     * SUMMARY BPK
+     * SUMMARY BPK PADA PERIODE TERPILIH
      * =========================================================
      */
 
-    const bpkResult = await pool.query(`
-SELECT
-  COUNT(*)::int AS total,
+    const bpkResult = await pool.query(
+      `
+      SELECT
+        COUNT(*)::int AS total,
 
-  COUNT(*) FILTER (
-    WHERE saldo_status = 'MASUK_SALDO'
-  )::int AS masuk_saldo,
+        COUNT(*) FILTER (
+          WHERE saldo_status = 'MASUK_SALDO'
+        )::int AS masuk_saldo,
 
-  COUNT(*) FILTER (
-    WHERE saldo_status = 'BELUM_SALDO'
-  )::int AS belum_saldo,
+        COUNT(*) FILTER (
+          WHERE saldo_status = 'BELUM_SALDO'
+        )::int AS belum_saldo,
 
-  
-  COUNT(*) FILTER (
-    WHERE UPPER(TRIM(COALESCE(category, '')))
-      IN ('KEUANGAN', 'LAPORAN KEUANGAN')
-  )::int AS keuangan,
+        COUNT(*) FILTER (
+          WHERE category = 'Laporan Keuangan'
+        )::int AS keuangan,
 
-  COUNT(*) FILTER (
-    WHERE UPPER(TRIM(COALESCE(category, '')))
-      IN (
-        'BUKAN_KEUANGAN',
-        'BUKAN KEUANGAN',
-        'NON KEUANGAN',
-        'PEMERIKSAAN NON KEUANGAN'
-      )
-  )::int AS bukan_keuangan,
+        COUNT(*) FILTER (
+          WHERE category = 'Bukan Keuangan'
+        )::int AS bukan_keuangan,
 
+        COUNT(*) FILTER (
+          WHERE follow_up_status = 'BELUM_TL'
+        )::int AS belum_tl,
 
-  COUNT(*) FILTER (
-    WHERE follow_up_status = 'BELUM_TL'
-  )::int AS belum_tl,
+        COUNT(*) FILTER (
+          WHERE follow_up_status = 'SUDAH_TL'
+        )::int AS tl_belum_tuntas,
 
-  COUNT(*) FILTER (
-    WHERE follow_up_status = 'SUDAH_TL'
-  )::int AS tl_belum_tuntas,
+        COUNT(*) FILTER (
+          WHERE follow_up_status = 'SUDAH_TUNTAS'
+        )::int AS tl_sudah_tuntas
 
-  COUNT(*) FILTER (
-    WHERE follow_up_status = 'SUDAH_TUNTAS'
-  )::int AS tl_sudah_tuntas
-
-FROM recommendations
-WHERE UPPER(TRIM(COALESCE(source, ''))) = 'BPK'
-`);
+        FROM public.recommendations
+      WHERE source = 'BPK'
+        AND ${periodFilter}
+      `,
+      [year]
+    );
 
     /*
      * =========================================================
-     * SUMMARY ITJEN
+     * SUMMARY ITJEN PADA PERIODE TERPILIH
      * =========================================================
      */
 
-    const itjenResult = await pool.query(`
+    const itjenResult = await pool.query(
+      `
       SELECT
         COUNT(*)::int AS total,
 
@@ -124,9 +154,12 @@ WHERE UPPER(TRIM(COALESCE(source, ''))) = 'BPK'
           WHERE follow_up_status = 'SUDAH_TUNTAS'
         )::int AS tl_sudah_tuntas
 
-      FROM recommendations
+        FROM public.recommendations
       WHERE source = 'ITJEN'
-    `);
+        AND ${periodFilter}
+      `,
+      [year]
+    );
 
     const row = result.rows[0];
     const bpk = bpkResult.rows[0];
@@ -143,7 +176,7 @@ WHERE UPPER(TRIM(COALESCE(source, ''))) = 'BPK'
 
     /*
      * =========================================================
-     * RUMUS CAPAIAN SESUAI EXCEL
+     * RUMUS CAPAIAN
      * =========================================================
      */
 
@@ -160,19 +193,13 @@ WHERE UPPER(TRIM(COALESCE(source, ''))) = 'BPK'
      * =========================================================
      */
 
-    const persentaseSaldo =
-      total > 0
-        ? ((tlBelumTuntas * WEIGHTS.TL_BELUM_TUNTAS +
-            tlSudahTuntas * WEIGHTS.TL_SUDAH_TUNTAS) /
-            total) *
-          100
-        : 0;
+    const persentaseSaldo = total > 0 ? (masukSaldo / total) * 100 : 0;
 
     const persentaseBelumSaldo = total > 0 ? (belumSaldo / total) * 100 : 0;
 
     /*
      * =========================================================
-     * BPK
+     * PERHITUNGAN BPK
      * =========================================================
      */
 
@@ -190,15 +217,14 @@ WHERE UPPER(TRIM(COALESCE(source, ''))) = 'BPK'
 
     return NextResponse.json({
       ok: true,
+      year,
 
       data: {
         total,
 
         belumTl,
 
-        /*
-         * SUDAH TL di sistem = TL Belum Tuntas
-         */
+        // Sudah TL berarti TL Belum Tuntas.
         sudahTl: tlBelumTuntas,
 
         sudahTuntas: tlSudahTuntas,
@@ -210,9 +236,6 @@ WHERE UPPER(TRIM(COALESCE(source, ''))) = 'BPK'
 
         persentaseBelumSaldo: Number(persentaseBelumSaldo.toFixed(2)),
 
-        /*
-         * HASIL RUMUS EXCEL
-         */
         capaian: Number(capaian.toFixed(2)),
 
         capaianWeights: {
@@ -254,9 +277,7 @@ WHERE UPPER(TRIM(COALESCE(source, ''))) = 'BPK'
     });
   } catch (error) {
     console.error("========== DASHBOARD SUMMARY ERROR ==========");
-
     console.error(error);
-
     console.error("=============================================");
 
     return NextResponse.json(

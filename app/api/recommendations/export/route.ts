@@ -6,14 +6,26 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
 
+    const yearParam = searchParams.get("year");
+    const year = yearParam ? Number(yearParam) : null;
+
     const startDate = searchParams.get("startDate") || "";
     const endDate = searchParams.get("endDate") || "";
     const source = searchParams.get("source") || "";
     const followUpStatus = searchParams.get("followUpStatus") || "";
     const category = searchParams.get("category") || "";
-
     const conditions: string[] = [];
     const values: string[] = [];
+
+    if (
+      year !== null &&
+      Number.isInteger(year) &&
+      year >= 2026 &&
+      year <= 9998
+    ) {
+      values.push(String(year));
+      conditions.push(`tahun_periode = $${values.length}::int`);
+    }
 
     if (startDate) {
       values.push(startDate);
@@ -61,7 +73,7 @@ export async function GET(request: NextRequest) {
       waktu_pelaksanaan,
       uic,
       tindak_lanjut
-    FROM recommendations
+      FROM public.recommendations
       ${whereClause}
       ORDER BY lha_date ASC, id ASC
       `,

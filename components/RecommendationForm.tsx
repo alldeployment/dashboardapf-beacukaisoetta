@@ -29,6 +29,7 @@ type Recommendation = {
   category: string;
   lha_number: string;
   lha_date: string;
+  tahun_periode?: number | null;
   recommendation_count: number;
   follow_up_status: string;
   saldo_status: string;
@@ -61,6 +62,7 @@ type Props = {
   editingData?: Recommendation | null;
   onCancelEdit?: () => void;
   initialFolder?: LhpFolder | null;
+  selectedYear?: number;
 };
 
 type ApiResponse = {
@@ -101,6 +103,7 @@ export default function RecommendationForm({
   editingData,
   onCancelEdit,
   initialFolder,
+  selectedYear,
 }: Props) {
   const isEditing = Boolean(editingData);
 
@@ -108,6 +111,9 @@ export default function RecommendationForm({
   const [category, setCategory] = useState("");
   const [lhaNumber, setLhaNumber] = useState("");
   const [lhaDate, setLhaDate] = useState("");
+  const [tahunPeriode, setTahunPeriode] = useState(
+    String(selectedYear ?? new Date().getFullYear())
+  );
   const [items, setItems] = useState<RecommendationItem[]>([emptyItem()]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -119,6 +125,13 @@ export default function RecommendationForm({
       setCategory(initialFolder.category || "");
       setLhaNumber(initialFolder.lha_number || "");
       setLhaDate(initialFolder.lha_date?.substring(0, 10) || "");
+      setTahunPeriode(
+        String(
+          initialFolder.items?.[0]?.tahun_periode ??
+            selectedYear ??
+            new Date().getFullYear()
+        )
+      );
       setItems([emptyItem()]);
       setMessage("");
       return;
@@ -130,6 +143,7 @@ export default function RecommendationForm({
       setCategory("");
       setLhaNumber("");
       setLhaDate("");
+      setTahunPeriode(String(selectedYear ?? new Date().getFullYear()));
       setItems([emptyItem()]);
       setMessage("");
       return;
@@ -140,6 +154,9 @@ export default function RecommendationForm({
     setCategory(editingData.category || "");
     setLhaNumber(editingData.lha_number || "");
     setLhaDate(editingData.lha_date?.substring(0, 10) || "");
+    setTahunPeriode(
+      String(editingData.tahun_periode ?? new Date().getFullYear())
+    );
 
     setItems([
       {
@@ -161,7 +178,7 @@ export default function RecommendationForm({
     ]);
 
     setMessage("");
-  }, [editingData, initialFolder]);
+  }, [editingData, initialFolder, selectedYear]);
 
   function updateItem(
     index: number,
@@ -239,6 +256,7 @@ export default function RecommendationForm({
       category,
       lhaNumber: lhaNumber.trim(),
       lhaDate,
+      tahun_periode: Number(tahunPeriode),
     };
 
     const body = isEditing
@@ -326,6 +344,7 @@ export default function RecommendationForm({
         setCategory("");
         setLhaNumber("");
         setLhaDate("");
+        setTahunPeriode(String(selectedYear ?? new Date().getFullYear()));
         setItems([emptyItem()]);
       }
 
@@ -461,6 +480,31 @@ export default function RecommendationForm({
                   className={inputClass}
                   disabled={loading || Boolean(initialFolder)}
                 />
+                {/* TAHUN PERIODE MONITORING */}
+                <div>
+                  <label htmlFor="tahunPeriode" className={labelClass}>
+                    Tahun Periode Monitoring{" "}
+                    <span className="text-red-500">*</span>
+                  </label>
+
+                  <input
+                    id="tahunPeriode"
+                    required
+                    type="number"
+                    min={1900}
+                    max={9998}
+                    step={1}
+                    value={tahunPeriode}
+                    onChange={(event) => setTahunPeriode(event.target.value)}
+                    placeholder="Contoh: 2026"
+                    className={inputClass}
+                    disabled={loading}
+                  />
+
+                  <p className="mt-1 text-xs text-slate-500">
+                    Tahun monitoring, terpisah dari tanggal LHA / LHP.
+                  </p>
+                </div>
               </div>
             </div>
           </section>

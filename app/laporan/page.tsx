@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Recommendation = {
   id: number;
@@ -25,6 +25,8 @@ export default function LaporanPage() {
   const [data, setData] = useState<Recommendation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [selectedYear, setSelectedYear] = useState(2026);
+  const [yearReady, setYearReady] = useState(false);
 
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -36,17 +38,47 @@ export default function LaporanPage() {
   const [selected, setSelected] = useState<Recommendation | null>(null);
 
   // =========================================================
+  // LOAD PERIODE
+  // =========================================================
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlYear = params.get("year");
+    const savedYear = localStorage.getItem("apfMonitoringYear");
+
+    const isValidYear = (value: string | null) => {
+      if (!value || !/^\d{4}$/.test(value)) return false;
+
+      const year = Number(value);
+      return year >= 2026 && year <= 9998;
+    };
+
+    const yearToUse = isValidYear(urlYear)
+      ? urlYear!
+      : isValidYear(savedYear)
+      ? savedYear!
+      : "2026";
+
+    setSelectedYear(Number(yearToUse));
+    localStorage.setItem("apfMonitoringYear", yearToUse);
+    setYearReady(true);
+  }, []);
+
+  // =========================================================
   // LOAD DATA
   // =========================================================
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       setError("");
 
-      const response = await fetch("/api/recommendations", {
-        cache: "no-store",
-      });
+      const response = await fetch(
+        `/api/recommendations?year=${selectedYear}`,
+        {
+          cache: "no-store",
+        }
+      );
 
       if (!response.ok) {
         throw new Error("Gagal mengambil data");
@@ -54,18 +86,26 @@ export default function LaporanPage() {
 
       const json = await response.json();
 
+      if (!json.ok) {
+        throw new Error(json.message || "Data laporan gagal dimuat.");
+      }
+
       setData(json.data || []);
     } catch (err) {
-      console.error(err);
-      setError("Data laporan gagal dimuat.");
+      console.error("LAPORAN ERROR:", err);
+      setError(
+        err instanceof Error ? err.message : "Data laporan gagal dimuat."
+      );
     } finally {
       setLoading(false);
     }
-  }
+  }, [selectedYear]);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (!yearReady) return;
+
+    void loadData();
+  }, [yearReady, loadData]);
 
   // =========================================================
   // FILTER DATA
@@ -262,6 +302,7 @@ export default function LaporanPage() {
 
   const exportExcel = () => {
     const params = new URLSearchParams();
+    params.set("year", String(selectedYear));
 
     if (startDate) {
       params.set("startDate", startDate);
@@ -1003,12 +1044,22 @@ export default function LaporanPage() {
                     </td>
 
                     <td className="px-5 py-4 text-right">
-                      <button
-                        onClick={() => setSelected(item)}
-                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-semibold text-slate-600 transition hover:border-[#D4A72C] hover:text-[#9B7518]"
-                      >
-                        Detail
-                      </button>
+                      <div className="flex justify-end gap-2">
+                        <a
+                          href={`/api/recommendations/download?id=${item.id}`}
+                          className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[10px] font-semibold text-blue-700 transition hover:bg-blue-100"
+                        >
+                          Download Word
+                        </a>
+
+                        <button
+                          type="button"
+                          onClick={() => setSelected(item)}
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-semibold text-slate-600 transition hover:border-[#D4A72C] hover:text-[#9B7518]"
+                        >
+                          Detail
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

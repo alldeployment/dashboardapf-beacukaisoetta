@@ -2,13 +2,63 @@ import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 
 /**
- * Menghitung capaian otomatis berdasarkan
- * status tindak lanjut.
+ * Periode monitoring terpisah dari tanggal LHA/LHP.
  *
- * BELUM_TL     = 0%
- * SUDAH_TL     = 50%
- * SUDAH_TUNTAS = 100%
+ * lha_date      = tanggal asli dokumen.
+ * tahun_periode = tahun pengelolaan data dalam aplikasi.
  */
+async function ensurePeriodColumn() {
+  await pool.query(`
+    ALTER TABLE public.recommendations
+    ADD COLUMN IF NOT EXISTS tahun_periode INTEGER
+  `);
+
+  // Migrasi awal data lama tanpa mengubah tanggal dokumen.
+  // Gunakan tahun pembuatan record sebagai periode awal.
+  await pool.query(`
+    UPDATE public.recommendations
+    SET tahun_periode = EXTRACT(YEAR FROM created_at)::INTEGER
+    WHERE tahun_periode IS NULL
+      AND created_at IS NOT NULL
+  `);
+
+  // Cadangan untuk record lama yang tidak memiliki created_at.
+  await pool.query(`
+    UPDATE public.recommendations
+    SET tahun_periode = EXTRACT(YEAR FROM lha_date)::INTEGER
+    WHERE tahun_periode IS NULL
+      AND lha_date IS NOT NULL
+  `);
+
+  // Pastikan record lama yang tidak memiliki tanggal tetap teralokasi.
+  await pool.query(
+    `
+    UPDATE public.recommendations
+    SET tahun_periode = $1
+    WHERE tahun_periode IS NULL
+    `,
+    [new Date().getFullYear()]
+  );
+}
+
+function parseYear(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const text = String(value);
+
+  if (!/^\d{4}$/.test(text)) return null;
+
+  const year = Number(text);
+
+  if (!Number.isInteger(year) || year < 1900 || year > 9998) {
+    return null;
+  }
+
+  return year;
+}
+
 function calculateCapaian(followUpStatus: string): number {
   switch (followUpStatus) {
     case "BELUM_TL":
@@ -27,52 +77,37 @@ function calculateCapaian(followUpStatus: string): number {
 
 /**
  * GET
- *
- * Mengambil seluruh rekomendasi.
- * Setiap row = 1 rekomendasi.
+ * Membaca rekomendasi sesuai tahun periode yang dipilih.
  */
 export async function GET(request: NextRequest) {
   try {
+    await ensurePeriodColumn();
+
     const { searchParams } = new URL(request.url);
 
     const lhaNumber = searchParams.get("lhaNumber");
     const source = searchParams.get("source");
+    const yearParam = searchParams.get("year");
 
-    let query = `
-      SELECT
-        id,
-        source,
-        category,
-        lha_number,
-        lha_date,
-        recommendation_number,
-        recommendation_count,
-        temuan,
-        recommendation,
-        
-        description,
-        keterangan_1,
-        keterangan_2,
-        keterangan_3,
-        
-        no_temuan,
-        judul,
-        rencana_aksi,
-        keterangan_bukti_dukung,
-        waktu_pelaksanaan,
-        uic,
-        tindak_lanjut,
-
-        follow_up_status,
-        saldo_status,
-        capaian,
-        created_at,
-        updated_at
-      FROM recommendations
-    `;
-
-    const values: string[] = [];
+    const values: (string | number)[] = [];
     const conditions: string[] = [];
+
+    if (yearParam !== null) {
+      const year = parseYear(yearParam);
+
+      if (year === null) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message: "Tahun periode tidak valid.",
+          },
+          { status: 400 }
+        );
+      }
+
+      values.push(year);
+      conditions.push(`tahun_periode = $${values.length}`);
+    }
 
     if (lhaNumber) {
       values.push(lhaNumber);
@@ -83,6 +118,37 @@ export async function GET(request: NextRequest) {
       values.push(source);
       conditions.push(`source = $${values.length}`);
     }
+
+    let query = `
+      SELECT
+        id,
+        source,
+        category,
+        lha_number,
+        lha_date,
+        tahun_periode,
+        recommendation_number,
+        recommendation_count,
+        temuan,
+        recommendation,
+        description,
+        keterangan_1,
+        keterangan_2,
+        keterangan_3,
+        no_temuan,
+        judul,
+        rencana_aksi,
+        keterangan_bukti_dukung,
+        waktu_pelaksanaan,
+        uic,
+        tindak_lanjut,
+        follow_up_status,
+        saldo_status,
+        capaian,
+        created_at,
+        updated_at
+      FROM recommendations
+    `;
 
     if (conditions.length > 0) {
       query += ` WHERE ${conditions.join(" AND ")}`;
@@ -97,10 +163,6 @@ export async function GET(request: NextRequest) {
 
     const result = await pool.query(query, values);
 
-    /**
-     * Capaian tetap dihitung otomatis
-     * berdasarkan status tindak lanjut.
-     */
     const data = result.rows.map((row) => ({
       ...row,
       capaian: calculateCapaian(row.follow_up_status),
@@ -128,15 +190,38 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST
+ * Menambahkan satu atau beberapa rekomendasi.
  *
- * Menambahkan satu atau beberapa rekomendasi
- * dalam satu LHA/LHP.
+ * Periode dapat dikirim melalui:
+ * body.tahun_periode, body.year, atau query ?year=2026.
+ * Jika tidak dikirim, tahun berjalan digunakan.
  */
 export async function POST(request: NextRequest) {
   const client = await pool.connect();
 
   try {
+    await ensurePeriodColumn();
+
     const body = await request.json();
+    const { searchParams } = new URL(request.url);
+
+    const requestedYear =
+      body.tahun_periode ?? body.year ?? searchParams.get("year");
+
+    const tahunPeriode =
+      requestedYear === null || requestedYear === undefined
+        ? new Date().getFullYear()
+        : parseYear(requestedYear);
+
+    if (tahunPeriode === null) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: "Tahun periode tidak valid.",
+        },
+        { status: 400 }
+      );
+    }
 
     const { source, category, lhaNumber, lhaDate, recommendations } = body;
 
@@ -152,20 +237,15 @@ export async function POST(request: NextRequest) {
 
     let recommendationList = recommendations;
 
-    /**
-     * Mendukung format lama.
-     */
+    // Tetap mendukung format request lama.
     if (!Array.isArray(recommendationList)) {
       recommendationList = [
         {
           temuan: body.temuan || "",
           recommendation: body.recommendation || "",
-
           keterangan_1: body.keterangan_1 || "",
           keterangan_2: body.keterangan_2 || "",
           keterangan_3: body.keterangan_3 || "",
-
-          // Kolom baru
           no_temuan: body.no_temuan || "",
           judul: body.judul || "",
           rencana_aksi: body.rencana_aksi || "",
@@ -173,10 +253,7 @@ export async function POST(request: NextRequest) {
           waktu_pelaksanaan: body.waktu_pelaksanaan || null,
           uic: body.uic || "",
           tindak_lanjut: body.tindak_lanjut || "",
-
-          // Tetap dukung data lama
           description: body.description || "",
-
           followUpStatus: body.followUpStatus,
           saldoStatus: body.saldoStatus,
         },
@@ -197,9 +274,6 @@ export async function POST(request: NextRequest) {
 
     const allowedSaldo = ["MASUK_SALDO", "BELUM_SALDO", "TIDAK_RELEVAN"];
 
-    /**
-     * Validasi setiap rekomendasi.
-     */
     for (let i = 0; i < recommendationList.length; i++) {
       const item = recommendationList[i];
 
@@ -250,10 +324,7 @@ export async function POST(request: NextRequest) {
 
     await client.query("BEGIN");
 
-    /**
-     * Cari nomor rekomendasi terakhir
-     * pada LHA/LHP yang sama.
-     */
+    // Nomor rekomendasi dihitung per LHA dan periode.
     const lastNumberResult = await client.query(
       `
       SELECT
@@ -263,17 +334,15 @@ export async function POST(request: NextRequest) {
       WHERE lha_number = $1
         AND source = $2
         AND category = $3
+        AND tahun_periode = $4
       `,
-      [lhaNumber, source, category]
+      [lhaNumber, source, category, tahunPeriode]
     );
 
     let nextNumber = Number(lastNumberResult.rows[0]?.last_number || 0) + 1;
 
     const insertedRows = [];
 
-    /**
-     * Masukkan seluruh rekomendasi.
-     */
     for (const item of recommendationList) {
       const capaian = calculateCapaian(item.followUpStatus);
 
@@ -284,17 +353,15 @@ export async function POST(request: NextRequest) {
           category,
           lha_number,
           lha_date,
+          tahun_periode,
           recommendation_number,
           recommendation_count,
-
           temuan,
           recommendation,
-
           description,
           keterangan_1,
           keterangan_2,
           keterangan_3,
-          
           no_temuan,
           judul,
           rencana_aksi,
@@ -302,38 +369,15 @@ export async function POST(request: NextRequest) {
           waktu_pelaksanaan,
           uic,
           tindak_lanjut,
-          
           follow_up_status,
           saldo_status,
           capaian
         )
         VALUES (
-          $1,
-          $2,
-          $3,
-          $4,
-          $5,
-          $6,
-
-          $7,
-          $8,
-
-          $9,
-          $10,
-          $11,
-          $12,
-          
-          $13,
-          $14,
-          $15,
-          $16,
-          $17,
-          $18,
-          $19,
-          
-          $20,
-          $21,
-          $22
+          $1, $2, $3, $4, $5, $6, $7,
+          $8, $9, $10, $11, $12, $13,
+          $14, $15, $16, $17, $18, $19,
+          $20, $21, $22, $23
         )
         RETURNING *
         `,
@@ -342,15 +386,12 @@ export async function POST(request: NextRequest) {
           category,
           lhaNumber,
           lhaDate,
+          tahunPeriode,
           nextNumber,
           recommendationList.length,
-
           item.temuan || "",
           item.recommendation || "",
-
-          // Data lama tetap dipertahankan
           item.description || "",
-
           item.keterangan_1 || "",
           item.keterangan_2 || "",
           item.keterangan_3 || "",
@@ -361,7 +402,6 @@ export async function POST(request: NextRequest) {
           item.waktu_pelaksanaan || null,
           item.uic || "",
           item.tindak_lanjut || "",
-
           item.followUpStatus,
           item.saldoStatus,
           capaian,
@@ -369,14 +409,10 @@ export async function POST(request: NextRequest) {
       );
 
       insertedRows.push(result.rows[0]);
-
       nextNumber++;
     }
 
-    /**
-     * Pastikan jumlah rekomendasi
-     * pada LHA/LHP sama.
-     */
+    // Hitung jumlah rekomendasi hanya dalam LHA dan periode yang sama.
     await client.query(
       `
       UPDATE recommendations
@@ -387,13 +423,15 @@ export async function POST(request: NextRequest) {
           WHERE r.lha_number = recommendations.lha_number
             AND r.source = recommendations.source
             AND r.category = recommendations.category
+            AND r.tahun_periode = recommendations.tahun_periode
         ),
         updated_at = CURRENT_TIMESTAMP
       WHERE lha_number = $1
         AND source = $2
         AND category = $3
+        AND tahun_periode = $4
       `,
-      [lhaNumber, source, category]
+      [lhaNumber, source, category, tahunPeriode]
     );
 
     await client.query("COMMIT");
@@ -401,13 +439,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         ok: true,
-        message: `${insertedRows.length} rekomendasi berhasil ditambahkan.`,
+        year: tahunPeriode,
+        message: `${insertedRows.length} rekomendasi berhasil ditambahkan ke periode ${tahunPeriode}.`,
         data: insertedRows,
       },
       { status: 201 }
     );
   } catch (error) {
-    await client.query("ROLLBACK");
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackError) {
+      console.error("ROLLBACK ERROR:", rollbackError);
+    }
 
     console.error("POST RECOMMENDATIONS ERROR:", error);
 
@@ -428,11 +471,13 @@ export async function POST(request: NextRequest) {
 
 /**
  * PUT
- *
- * Mengubah data rekomendasi.
+ * Memperbarui rekomendasi dan mempertahankan periode
+ * jika tahun_periode tidak dikirim.
  */
 export async function PUT(request: NextRequest) {
   try {
+    await ensurePeriodColumn();
+
     const body = await request.json();
 
     const {
@@ -442,15 +487,12 @@ export async function PUT(request: NextRequest) {
       lhaNumber,
       lhaDate,
       recommendationNumber,
-
       temuan,
       recommendation,
-
       description,
       keterangan_1,
       keterangan_2,
       keterangan_3,
-
       no_temuan,
       judul,
       rencana_aksi,
@@ -458,7 +500,6 @@ export async function PUT(request: NextRequest) {
       waktu_pelaksanaan,
       uic,
       tindak_lanjut,
-
       followUpStatus,
       saldoStatus,
     } = body;
@@ -515,9 +556,22 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    /**
-     * Capaian otomatis.
-     */
+    let tahunPeriode: number | null = null;
+
+    if (body.tahun_periode !== undefined && body.tahun_periode !== null) {
+      tahunPeriode = parseYear(body.tahun_periode);
+
+      if (tahunPeriode === null) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message: "Tahun periode tidak valid.",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     const capaian = calculateCapaian(followUpStatus);
 
     const result = await pool.query(
@@ -528,31 +582,26 @@ export async function PUT(request: NextRequest) {
         category = $2,
         lha_number = $3,
         lha_date = $4,
-
-        recommendation_number =
-          COALESCE($5, recommendation_number),
-
-        temuan = $6,
-        recommendation = $7,
-
-        description = $8,
-        keterangan_1 = $9,
-        keterangan_2 = $10,
-        keterangan_3 = $11,
-        no_temuan = $12,
-        judul = $13,
-        rencana_aksi = $14,
-        keterangan_bukti_dukung = $15,
-        waktu_pelaksanaan = $16,
-        uic = $17,
-        tindak_lanjut = $18,
-
-        follow_up_status = $19,
-saldo_status = $20,
-capaian = $21,
-
-updated_at = CURRENT_TIMESTAMP
-WHERE id = $22
+        tahun_periode = COALESCE($5, tahun_periode),
+        recommendation_number = COALESCE($6, recommendation_number),
+        temuan = $7,
+        recommendation = $8,
+        description = $9,
+        keterangan_1 = $10,
+        keterangan_2 = $11,
+        keterangan_3 = $12,
+        no_temuan = $13,
+        judul = $14,
+        rencana_aksi = $15,
+        keterangan_bukti_dukung = $16,
+        waktu_pelaksanaan = $17,
+        uic = $18,
+        tindak_lanjut = $19,
+        follow_up_status = $20,
+        saldo_status = $21,
+        capaian = $22,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $23
       RETURNING *
       `,
       [
@@ -560,11 +609,10 @@ WHERE id = $22
         category,
         lhaNumber,
         lhaDate,
+        tahunPeriode,
         recommendationNumber || null,
-
         temuan || "",
         recommendation || "",
-
         description || "",
         keterangan_1 || "",
         keterangan_2 || "",
@@ -576,11 +624,9 @@ WHERE id = $22
         waktu_pelaksanaan || null,
         uic || "",
         tindak_lanjut || "",
-
         followUpStatus,
         saldoStatus,
         capaian,
-
         id,
       ]
     );
@@ -618,13 +664,13 @@ WHERE id = $22
 
 /**
  * DELETE
- *
  * Menghapus satu rekomendasi.
  */
 export async function DELETE(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
+    await ensurePeriodColumn();
 
+    const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
     if (!id) {
@@ -656,40 +702,42 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    const deletedLhaNumber = result.rows[0].lha_number;
-    const deletedSource = result.rows[0].source;
-    const deletedCategory = result.rows[0].category;
+    const deleted = result.rows[0];
 
-    /**
-     * Hitung ulang jumlah rekomendasi
-     * pada LHA/LHP terkait.
-     */
+    // Hitung ulang jumlah hanya untuk periode yang sama.
     await pool.query(
       `
       UPDATE recommendations
       SET
         recommendation_count = (
           SELECT COUNT(*)
-          FROM recommendations r2
-          WHERE r2.lha_number = recommendations.lha_number
-            AND r2.source = recommendations.source
-            AND r2.category = recommendations.category
+          FROM recommendations r
+          WHERE r.lha_number = recommendations.lha_number
+            AND r.source = recommendations.source
+            AND r.category = recommendations.category
+            AND r.tahun_periode = recommendations.tahun_periode
         ),
         updated_at = CURRENT_TIMESTAMP
       WHERE lha_number = $1
         AND source = $2
         AND category = $3
+        AND tahun_periode = $4
       `,
-      [deletedLhaNumber, deletedSource, deletedCategory]
+      [
+        deleted.lha_number,
+        deleted.source,
+        deleted.category,
+        deleted.tahun_periode,
+      ]
     );
 
     return NextResponse.json({
       ok: true,
       message: "Rekomendasi berhasil dihapus.",
-      data: result.rows[0],
+      data: deleted,
     });
   } catch (error) {
-    console.error("DELETE RECOMMENDATION ERROR:", error);
+    console.error("DELETE RECOMMENDATIONS ERROR:", error);
 
     return NextResponse.json(
       {

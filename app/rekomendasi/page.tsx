@@ -227,6 +227,8 @@ async function readApiJson(response: Response) {
 export default function RekomendasiPage() {
   const [data, setData] = useState<Recommendation[]>([]);
   const [summary, setSummary] = useState<Summary>(EMPTY_SUMMARY);
+  const [selectedYear, setSelectedYear] = useState(2026);
+  const [yearReady, setYearReady] = useState(false);
 
   // Capaian keseluruhan manual yang disimpan di database
   const [manualCapaian, setManualCapaian] = useState(0);
@@ -268,155 +270,193 @@ export default function RekomendasiPage() {
   /*
    * LOAD DATA
    */
-  const loadData = useCallback(async (showRefresh = false) => {
-    try {
-      if (showRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlYear = params.get("year");
+    const savedYear = localStorage.getItem("apfMonitoringYear");
 
-      setError("");
+    const isValidYear = (value: string | null) => {
+      if (!value || !/^\d{4}$/.test(value)) return false;
 
-      const [recommendationResponse, summaryResponse, capaianResponse] =
-        await Promise.all([
-          fetch("/api/recommendations", {
-            cache: "no-store",
-          }),
+      const year = Number(value);
+      return year >= 2026 && year <= 9998;
+    };
 
-          fetch("/api/dashboard/summary", {
-            cache: "no-store",
-          }),
+    const yearToUse = isValidYear(urlYear)
+      ? urlYear!
+      : isValidYear(savedYear)
+      ? savedYear!
+      : "2026";
 
-          fetch("/api/dashboard/capaian", {
-            cache: "no-store",
-          }),
-        ]);
-
-      /*
-       * RECOMMENDATIONS
-       */
-      if (!recommendationResponse.ok) {
-        const errorJson = await readApiJson(recommendationResponse);
-
-        throw new Error(
-          errorJson?.message || "Gagal mengambil data rekomendasi."
-        );
-      }
-
-      const recommendationJson = await readApiJson(recommendationResponse);
-
-      const recommendationData = Array.isArray(recommendationJson)
-        ? recommendationJson
-        : recommendationJson?.data ?? recommendationJson?.recommendations ?? [];
-
-      const normalizedData: Recommendation[] = recommendationData.map(
-        (item: Recommendation) => ({
-          ...item,
-          id: Number(item.id),
-          capaian: Number(item.capaian) || 0,
-          recommendation_number: Number(item.recommendation_number) || 1,
-          recommendation_count: Number(item.recommendation_count) || 1,
-          follow_up_status: item.follow_up_status || "",
-          saldo_status: item.saldo_status || "",
-          source: item.source || "",
-          category: item.category || "",
-          lha_number: item.lha_number || "",
-          lha_date: item.lha_date || "",
-        })
-      );
-
-      setData(normalizedData);
-
-      /*
-       * SUMMARY
-       */
-      if (summaryResponse.ok) {
-        const summaryJson = await readApiJson(summaryResponse);
-
-        const summaryData =
-          summaryJson?.data ??
-          summaryJson?.summary ??
-          summaryJson ??
-          EMPTY_SUMMARY;
-
-        setSummary({
-          ...EMPTY_SUMMARY,
-          ...summaryData,
-          bpk: {
-            ...EMPTY_SUMMARY.bpk,
-            ...(summaryData?.bpk ?? {}),
-          },
-          itjen: {
-            ...EMPTY_SUMMARY.itjen,
-            ...(summaryData?.itjen ?? {}),
-          },
-        });
-      }
-
-      /*
-       * CAPAIAN MANUAL KESELURUHAN
-       */
-      if (capaianResponse.ok) {
-        const capaianJson = await readApiJson(capaianResponse);
-        const rumusTersimpan = capaianJson?.data?.rumus;
-
-        if (rumusTersimpan) {
-          setRumusCapaian(rumusTersimpan.rumus_capaian ?? "");
-
-          setRumusIndeks(rumusTersimpan.rumus_indeks ?? "");
-        }
-        const manualValue = Number(
-          capaianJson?.data?.capaian_manual ??
-            capaianJson?.data?.capaian ??
-            capaianJson?.capaian_manual ??
-            capaianJson?.capaian ??
-            0
-        );
-
-        const automaticValue = Number(capaianJson?.data?.capaian_otomatis ?? 0);
-
-        const indeksValue = Number(capaianJson?.data?.indeks_capaian ?? 0);
-        const indeksManualValue = Number(
-          capaianJson?.data?.indeks_capaian_manual ?? 0
-        );
-
-        setIndeksManual(indeksManualValue);
-        setModeIndeks(
-          capaianJson?.data?.indeks_capaian_mode === "MANUAL"
-            ? "MANUAL"
-            : "OTOMATIS"
-        );
-
-        setManualCapaian(Math.max(0, Math.min(100, Number(manualValue) || 0)));
-
-        setAutomaticCapaian(
-          Math.max(0, Math.min(1, Number(automaticValue) || 0))
-        );
-
-        setIndeksCapaian(Math.max(0, Math.min(1.2, Number(indeksValue) || 0)));
-      } else {
-        const capaianError = await readApiJson(capaianResponse);
-
-        console.warn("Gagal mengambil capaian manual:", capaianError);
-      }
-    } catch (err) {
-      console.error(err);
-
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Terjadi kesalahan saat mengambil data."
-      );
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+    setSelectedYear(Number(yearToUse));
+    localStorage.setItem("apfMonitoringYear", yearToUse);
+    setYearReady(true);
   }, []);
 
+  const loadData = useCallback(
+    async (showRefresh = false) => {
+      try {
+        if (showRefresh) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
+
+        setError("");
+
+        const query = `?year=${selectedYear}`;
+
+        const [recommendationResponse, summaryResponse, capaianResponse] =
+          await Promise.all([
+            fetch(`/api/recommendations${query}`, {
+              cache: "no-store",
+            }),
+
+            fetch(`/api/dashboard/summary${query}`, {
+              cache: "no-store",
+            }),
+
+            fetch(`/api/dashboard/capaian${query}`, {
+              cache: "no-store",
+            }),
+          ]);
+
+        /*
+         * RECOMMENDATIONS
+         */
+        if (!recommendationResponse.ok) {
+          const errorJson = await readApiJson(recommendationResponse);
+
+          throw new Error(
+            errorJson?.message || "Gagal mengambil data rekomendasi."
+          );
+        }
+
+        const recommendationJson = await readApiJson(recommendationResponse);
+
+        const recommendationData = Array.isArray(recommendationJson)
+          ? recommendationJson
+          : recommendationJson?.data ??
+            recommendationJson?.recommendations ??
+            [];
+
+        const normalizedData: Recommendation[] = recommendationData.map(
+          (item: Recommendation) => ({
+            ...item,
+            id: Number(item.id),
+            capaian: Number(item.capaian) || 0,
+            recommendation_number: Number(item.recommendation_number) || 1,
+            recommendation_count: Number(item.recommendation_count) || 1,
+            follow_up_status: item.follow_up_status || "",
+            saldo_status: item.saldo_status || "",
+            source: item.source || "",
+            category: item.category || "",
+            lha_number: item.lha_number || "",
+            lha_date: item.lha_date || "",
+          })
+        );
+
+        setData(normalizedData);
+
+        /*
+         * SUMMARY
+         */
+        if (summaryResponse.ok) {
+          const summaryJson = await readApiJson(summaryResponse);
+
+          const summaryData =
+            summaryJson?.data ??
+            summaryJson?.summary ??
+            summaryJson ??
+            EMPTY_SUMMARY;
+
+          setSummary({
+            ...EMPTY_SUMMARY,
+            ...summaryData,
+            bpk: {
+              ...EMPTY_SUMMARY.bpk,
+              ...(summaryData?.bpk ?? {}),
+            },
+            itjen: {
+              ...EMPTY_SUMMARY.itjen,
+              ...(summaryData?.itjen ?? {}),
+            },
+          });
+        }
+
+        /*
+         * CAPAIAN MANUAL KESELURUHAN
+         */
+        if (capaianResponse.ok) {
+          const capaianJson = await readApiJson(capaianResponse);
+          const rumusTersimpan = capaianJson?.data?.rumus;
+
+          if (rumusTersimpan) {
+            setRumusCapaian(rumusTersimpan.rumus_capaian ?? "");
+
+            setRumusIndeks(rumusTersimpan.rumus_indeks ?? "");
+          }
+          const manualValue = Number(
+            capaianJson?.data?.capaian_manual ??
+              capaianJson?.data?.capaian ??
+              capaianJson?.capaian_manual ??
+              capaianJson?.capaian ??
+              0
+          );
+
+          const automaticValue = Number(
+            capaianJson?.data?.capaian_otomatis ?? 0
+          );
+
+          const indeksValue = Number(capaianJson?.data?.indeks_capaian ?? 0);
+          const indeksManualValue = Number(
+            capaianJson?.data?.indeks_capaian_manual ?? 0
+          );
+
+          setIndeksManual(indeksManualValue);
+          setModeIndeks(
+            capaianJson?.data?.indeks_capaian_mode === "MANUAL"
+              ? "MANUAL"
+              : "OTOMATIS"
+          );
+
+          setManualCapaian(
+            Math.max(0, Math.min(100, Number(manualValue) || 0))
+          );
+
+          setAutomaticCapaian(
+            Math.max(0, Math.min(1, Number(automaticValue) || 0))
+          );
+
+          setIndeksCapaian(
+            Math.max(0, Math.min(1.2, Number(indeksValue) || 0))
+          );
+        } else {
+          const capaianError = await readApiJson(capaianResponse);
+
+          console.warn("Gagal mengambil capaian manual:", capaianError);
+        }
+      } catch (err) {
+        console.error(err);
+
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Terjadi kesalahan saat mengambil data."
+        );
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [selectedYear]
+  );
+
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (yearReady) {
+      void loadData();
+    }
+  }, [yearReady, loadData]);
 
   /*
    * FILTER DATA
@@ -675,6 +715,7 @@ export default function RekomendasiPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          year: selectedYear,
           indeks_capaian_manual: value,
           indeks_capaian_mode: "OTOMATIS",
         }),
@@ -1221,6 +1262,7 @@ export default function RekomendasiPage() {
                 editingData={editing}
                 onCancelEdit={closeForm}
                 initialFolder={addingToFolder}
+                selectedYear={selectedYear}
               />
             </div>
           </div>
