@@ -12,6 +12,19 @@ async function ensurePeriodColumn() {
     ALTER TABLE public.recommendations
     ADD COLUMN IF NOT EXISTS tahun_periode INTEGER
   `);
+  await pool.query(`
+  ALTER TABLE public.recommendations
+  ADD COLUMN IF NOT EXISTS asal_recommendation_id INTEGER
+`);
+
+  await pool.query(`
+  CREATE UNIQUE INDEX IF NOT EXISTS recommendations_asal_period_unique_idx
+  ON public.recommendations (
+    asal_recommendation_id,
+    tahun_periode
+  )
+  WHERE asal_recommendation_id IS NOT NULL
+`);
 
   // Migrasi awal data lama tanpa mengubah tanggal dokumen.
   // Gunakan tahun pembuatan record sebagai periode awal.
@@ -76,6 +89,132 @@ function calculateCapaian(followUpStatus: string): number {
 }
 
 /**
+ * Membawa rekomendasi yang belum tuntas ke periode berikutnya.
+ * Data periode lama tidak diubah atau dihapus.
+ */
+async function carryOverUnfinishedRecommendations(targetYear: number) {
+  // Periode awal aplikasi adalah 2026.
+  // Carry-over mulai berlaku untuk 2027 dan seterusnya.
+  if (targetYear <= 2026) return;
+
+  const previousYear = targetYear - 1;
+
+  await pool.query(
+    `
+    INSERT INTO public.recommendations (
+      source,
+      category,
+      lha_number,
+      lha_date,
+      tahun_periode,
+      recommendation_number,
+      recommendation_count,
+      temuan,
+      recommendation,
+      description,
+      keterangan_1,
+      keterangan_2,
+      keterangan_3,
+      no_temuan,
+      judul,
+      rencana_aksi,
+      keterangan_bukti_dukung,
+      waktu_pelaksanaan,
+      uic,
+      tindak_lanjut,
+      follow_up_status,
+      saldo_status,
+      capaian,
+      asal_recommendation_id
+    )
+    SELECT
+      previous.source,
+      previous.category,
+      previous.lha_number,
+      previous.lha_date,
+      $2,
+      previous.recommendation_number,
+      previous.recommendation_count,
+      previous.temuan,
+      previous.recommendation,
+      previous.description,
+      previous.keterangan_1,
+      previous.keterangan_2,
+      previous.keterangan_3,
+      previous.no_temuan,
+      previous.judul,
+      previous.rencana_aksi,
+      previous.keterangan_bukti_dukung,
+      previous.waktu_pelaksanaan,
+      previous.uic,
+      previous.tindak_lanjut,
+      CASE
+        WHEN previous.follow_up_status = 'BELUM_TUNTAS'
+          THEN 'SUDAH_TL'
+        ELSE previous.follow_up_status
+      END,
+      previous.saldo_status,
+      CASE
+        WHEN previous.follow_up_status IN ('SUDAH_TL', 'BELUM_TUNTAS')
+          THEN 50
+        ELSE 0
+      END,
+      previous.id
+    FROM public.recommendations AS previous
+    WHERE previous.tahun_periode = $1
+      AND previous.follow_up_status IN (
+        'BELUM_TL',
+        'SUDAH_TL',
+        'BELUM_TUNTAS'
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM public.recommendations AS current
+        WHERE current.asal_recommendation_id = previous.id
+          AND current.tahun_periode = $2
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM public.recommendations AS current
+        WHERE current.tahun_periode = $2
+          AND current.source = previous.source
+          AND current.category = previous.category
+          AND current.lha_number = previous.lha_number
+          AND current.recommendation_number
+              IS NOT DISTINCT FROM previous.recommendation_number
+          AND current.asal_recommendation_id IS NULL
+      )
+    ON CONFLICT DO NOTHING
+    `,
+    [previousYear, targetYear]
+  );
+
+  // Hitung ulang jumlah rekomendasi per folder pada periode tujuan.
+  await pool.query(
+    `
+    UPDATE public.recommendations AS target
+    SET recommendation_count = counts.total
+    FROM (
+      SELECT
+        source,
+        category,
+        lha_number,
+        tahun_periode,
+        COUNT(*)::int AS total
+      FROM public.recommendations
+      WHERE tahun_periode = $1
+      GROUP BY source, category, lha_number, tahun_periode
+    ) AS counts
+    WHERE target.tahun_periode = counts.tahun_periode
+      AND target.source = counts.source
+      AND target.category = counts.category
+      AND target.lha_number = counts.lha_number
+    `,
+    [targetYear]
+  );
+}
+
+/**
  * GET
  * Membaca rekomendasi sesuai tahun periode yang dipilih.
  */
@@ -104,6 +243,8 @@ export async function GET(request: NextRequest) {
           { status: 400 }
         );
       }
+
+      await carryOverUnfinishedRecommendations(year);
 
       values.push(year);
       conditions.push(`tahun_periode = $${values.length}`);
