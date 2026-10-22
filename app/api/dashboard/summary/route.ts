@@ -139,6 +139,33 @@ export async function GET(request: Request) {
 
     const itjenResult = await pool.query(
       `
+      WITH itjen_unique AS (
+        SELECT DISTINCT ON (
+          source,
+          category,
+          lha_number,
+          recommendation_number,
+          tahun_periode
+        )
+          id,
+          source,
+          category,
+          lha_number,
+          recommendation_number,
+          tahun_periode,
+          follow_up_status
+        FROM public.recommendations
+        WHERE source = 'ITJEN'
+          AND tahun_periode = $1
+        ORDER BY
+          source,
+          category,
+          lha_number,
+          recommendation_number,
+          tahun_periode,
+          updated_at DESC NULLS LAST,
+          id DESC
+      )
       SELECT
         COUNT(*)::int AS total,
 
@@ -147,16 +174,14 @@ export async function GET(request: Request) {
         )::int AS belum_tl,
 
         COUNT(*) FILTER (
-          WHERE follow_up_status = 'SUDAH_TL'
+          WHERE follow_up_status IN ('SUDAH_TL', 'BELUM_TUNTAS')
         )::int AS tl_belum_tuntas,
 
         COUNT(*) FILTER (
           WHERE follow_up_status = 'SUDAH_TUNTAS'
         )::int AS tl_sudah_tuntas
 
-        FROM public.recommendations
-      WHERE source = 'ITJEN'
-        AND ${periodFilter}
+      FROM itjen_unique
       `,
       [year]
     );
