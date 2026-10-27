@@ -5,9 +5,18 @@ import { hitungRumusIndeks } from "@/lib/rumus-indeks";
 type ModeIndeks = "MANUAL" | "OTOMATIS";
 
 const RUMUS_CAPAIAN_DEFAULT =
+  "((70% * tl_belum_tuntas) + (100% * tl_sudah_tuntas)) / saldo";
+
+const RUMUS_PERSENTASE_SALDO_DEFAULT =
   "((70% * tl_belum_tuntas) + tl_sudah_tuntas) / saldo";
 
-const RUMUS_INDEKS_DEFAULT = "min(capaian / 0.62, 1.2)";
+const RUMUS_INDEKS_DEFAULT = "min(capaian / 81 * 100, 120%)";
+
+function normalizePercentLiterals(formula: string): string {
+  return formula.replace(/(\d+(?:\.\d+)?)\s*%/g, (_match, value: string) =>
+    String(Number(value) / 100)
+  );
+}
 
 function calculateCapaian(
   saldo: number,
@@ -50,20 +59,32 @@ async function ensureCapaianPeriodeTable() {
 }
 
 // Pengaturan rumus berlaku global untuk seluruh periode.
+
 async function getOrCreateRumus() {
+  await pool.query(`
+    ALTER TABLE public.pengaturan_rumus_capaian
+    ADD COLUMN IF NOT EXISTS rumus_persentase_saldo TEXT
+    NOT NULL DEFAULT '((70% * tl_belum_tuntas) + tl_sudah_tuntas) / saldo'
+  `);
+
   await pool.query(
     `
     INSERT INTO public.pengaturan_rumus_capaian (
       id,
       rumus_capaian,
       rumus_indeks,
+      rumus_persentase_saldo,
       versi,
       updated_at
     )
-    VALUES (1, $1, $2, 1, CURRENT_TIMESTAMP)
+    VALUES (1, $1, $2, $3, 1, CURRENT_TIMESTAMP)
     ON CONFLICT (id) DO NOTHING
     `,
-    [RUMUS_CAPAIAN_DEFAULT, RUMUS_INDEKS_DEFAULT]
+    [
+      RUMUS_CAPAIAN_DEFAULT,
+      RUMUS_INDEKS_DEFAULT,
+      RUMUS_PERSENTASE_SALDO_DEFAULT,
+    ]
   );
 
   const result = await pool.query(`
@@ -71,6 +92,7 @@ async function getOrCreateRumus() {
       id,
       rumus_capaian,
       rumus_indeks,
+      rumus_persentase_saldo,
       versi,
       updated_at
     FROM public.pengaturan_rumus_capaian
@@ -161,15 +183,17 @@ async function getSummary(year: number | null) {
       COUNT(*)::int AS saldo,
 
       COUNT(*) FILTER (
-        WHERE follow_up_status = 'BELUM_TL'
+        WHERE UPPER(TRIM(COALESCE(follow_up_status, ''))) = 'BELUM_TL'
       )::int AS belum_tl,
 
       COUNT(*) FILTER (
-        WHERE follow_up_status = 'SUDAH_TL'
+        WHERE UPPER(TRIM(COALESCE(follow_up_status, '')))
+          IN ('SUDAH_TL', 'BELUM_TUNTAS', 'TL_BELUM_TUNTAS')
       )::int AS tl_belum_tuntas,
 
       COUNT(*) FILTER (
-        WHERE follow_up_status = 'SUDAH_TUNTAS'
+        WHERE UPPER(TRIM(COALESCE(follow_up_status, '')))
+          IN ('SUDAH_TUNTAS', 'TL_SUDAH_TUNTAS')
       )::int AS tl_sudah_tuntas
 
     FROM public.recommendations
@@ -227,12 +251,25 @@ export async function GET(request: Request) {
     const tlBelumTuntas = Number(summary?.tl_belum_tuntas ?? 0);
     const tlSudahTuntas = Number(summary?.tl_sudah_tuntas ?? 0);
 
-    // Capaian otomatis tetap menggunakan bobot 70% dan 100%.
-    const capaianOtomatis = calculateCapaian(
-      saldo,
-      tlBelumTuntas,
-      tlSudahTuntas
-    );
+    // Capaian Otomatis dihitung berdasarkan seluruh rekomendasi.
+    const rumusCapaian =
+      String(rumusTersimpan?.rumus_capaian ?? "").trim() ||
+      RUMUS_CAPAIAN_DEFAULT;
+
+    const capaianOtomatis =
+      saldo > 0
+        ? hitungRumusIndeks(normalizePercentLiterals(rumusCapaian), {
+            capaian: 0,
+            saldo,
+            belum_tl: belumTL,
+            tl_belum_tuntas: tlBelumTuntas,
+            tl_sudah_tuntas: tlSudahTuntas,
+          })
+        : 0;
+
+    if (!Number.isFinite(capaianOtomatis)) {
+      throw new Error("Hasil rumus Capaian Otomatis tidak valid.");
+    }
 
     const rumusIndeks =
       String(rumusTersimpan?.rumus_indeks ?? "").trim() || RUMUS_INDEKS_DEFAULT;
@@ -243,6 +280,23 @@ export async function GET(request: Request) {
       tl_belum_tuntas: tlBelumTuntas,
       tl_sudah_tuntas: tlSudahTuntas,
     });
+    const rumusPersentaseSaldo =
+      String(rumusTersimpan?.rumus_persentase_saldo ?? "").trim() ||
+      RUMUS_PERSENTASE_SALDO_DEFAULT;
+
+    const persentaseSaldoOtomatis =
+      saldo > 0
+        ? hitungRumusIndeks(normalizePercentLiterals(rumusPersentaseSaldo), {
+            capaian: capaianOtomatis,
+            saldo,
+            tl_belum_tuntas: tlBelumTuntas,
+            tl_sudah_tuntas: tlSudahTuntas,
+          })
+        : 0;
+
+    if (!Number.isFinite(persentaseSaldoOtomatis)) {
+      throw new Error("Hasil rumus Persentase Saldo tidak valid.");
+    }
 
     const mode: ModeIndeks =
       saved?.indeks_capaian_mode === "MANUAL" ? "MANUAL" : "OTOMATIS";
@@ -262,6 +316,7 @@ export async function GET(request: Request) {
 
       data: {
         rumus: rumusTersimpan,
+        persentase_saldo: persentaseSaldoOtomatis,
 
         capaian_manual: Number(saved?.capaian_manual ?? 0),
 
@@ -338,7 +393,264 @@ export async function PUT(request: Request) {
     // Rumus tetap berlaku global, sedangkan mode indeks
     // hanya diubah untuk periode terpilih.
     // =====================================================
+    if (body.rumus_persentase_saldo !== undefined) {
+      const rumusPersentaseSaldo = String(
+        body.rumus_persentase_saldo ?? ""
+      ).trim();
 
+      if (!rumusPersentaseSaldo) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message: "Rumus Persentase Saldo tidak boleh kosong.",
+          },
+          { status: 400 }
+        );
+      }
+
+      await getOrCreateRumus();
+
+      try {
+        const hasilUji = hitungRumusIndeks(
+          normalizePercentLiterals(rumusPersentaseSaldo),
+          {
+            capaian: 0.5,
+            saldo: 10,
+            tl_belum_tuntas: 3,
+            tl_sudah_tuntas: 4,
+          }
+        );
+
+        if (!Number.isFinite(hasilUji)) {
+          throw new Error("Hasil rumus bukan angka yang valid.");
+        }
+      } catch (error) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message: "Rumus Persentase Saldo tidak valid.",
+            error:
+              error instanceof Error
+                ? error.message
+                : "Rumus tidak dapat dihitung.",
+          },
+          { status: 400 }
+        );
+      }
+
+      await pool.query(
+        `
+        UPDATE public.pengaturan_rumus_capaian
+        SET
+          rumus_persentase_saldo = $1,
+          versi = versi + 1,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1
+        `,
+        [rumusPersentaseSaldo]
+      );
+
+      return NextResponse.json({
+        ok: true,
+        year: settingsYear,
+        message: "Rumus Persentase Saldo berhasil disimpan.",
+      });
+    }
+    if (body.rumus_persentase_saldo !== undefined) {
+      const formula = String(body.rumus_persentase_saldo ?? "").trim();
+
+      if (!formula) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message: "Rumus Persentase Saldo tidak boleh kosong.",
+          },
+          { status: 400 }
+        );
+      }
+
+      await getOrCreateRumus();
+
+      try {
+        const hasilUji = hitungRumusIndeks(normalizePercentLiterals(formula), {
+          capaian: 0.5,
+          saldo: 10,
+          tl_belum_tuntas: 3,
+          tl_sudah_tuntas: 4,
+        });
+
+        if (!Number.isFinite(hasilUji)) {
+          throw new Error("Hasil rumus bukan angka yang valid.");
+        }
+      } catch (error) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message: "Rumus Persentase Saldo tidak valid.",
+            error:
+              error instanceof Error
+                ? error.message
+                : "Rumus tidak dapat dihitung.",
+          },
+          { status: 400 }
+        );
+      }
+
+      await pool.query(
+        `
+        UPDATE public.pengaturan_rumus_capaian
+        SET
+          rumus_persentase_saldo = $1,
+          versi = versi + 1,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1
+        `,
+        [formula]
+      );
+
+      return NextResponse.json({
+        ok: true,
+        year: settingsYear,
+        message: "Rumus Persentase Saldo berhasil disimpan.",
+      });
+    }
+    // SIMPAN RUMUS CAPAIAN SAJA
+    if (body.rumus_capaian !== undefined && body.rumus_indeks === undefined) {
+      const rumusCapaian = String(body.rumus_capaian ?? "").trim();
+
+      if (!rumusCapaian) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message: "Rumus Capaian tidak boleh kosong.",
+          },
+          { status: 400 }
+        );
+      }
+
+      await getOrCreateRumus();
+
+      try {
+        const hasilUji = hitungRumusIndeks(
+          normalizePercentLiterals(rumusCapaian),
+          {
+            capaian: 0.5,
+            saldo: 10,
+            tl_belum_tuntas: 3,
+            tl_sudah_tuntas: 4,
+            belum_tl: 3,
+          }
+        );
+
+        if (!Number.isFinite(hasilUji)) {
+          throw new Error("Hasil rumus bukan angka yang valid.");
+        }
+      } catch (error) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message: "Rumus Capaian tidak valid.",
+            error:
+              error instanceof Error
+                ? error.message
+                : "Rumus tidak dapat dihitung.",
+          },
+          { status: 400 }
+        );
+      }
+
+      await pool.query(
+        `
+            UPDATE public.pengaturan_rumus_capaian
+            SET
+              rumus_capaian = $1,
+              versi = versi + 1,
+              updated_at = CURRENT_TIMESTAMP
+            WHERE id = 1
+            `,
+        [rumusCapaian]
+      );
+
+      return NextResponse.json({
+        ok: true,
+        year: settingsYear,
+        message: "Rumus Capaian berhasil disimpan.",
+      });
+    }
+    // =====================================================
+    // SIMPAN RUMUS INDEKS CAPAIAN SAJA
+    // Tidak mengubah rumus Capaian atau Persentase Saldo.
+    // =====================================================
+
+    if (body.rumus_indeks !== undefined && body.rumus_capaian === undefined) {
+      const rumusIndeks = String(body.rumus_indeks ?? "").trim();
+
+      if (!rumusIndeks) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message: "Rumus Indeks Capaian tidak boleh kosong.",
+          },
+          { status: 400 }
+        );
+      }
+
+      await getOrCreateRumus();
+
+      try {
+        const hasilUji = hitungRumusIndeks(rumusIndeks, {
+          capaian: 0.5,
+          saldo: 10,
+          tl_belum_tuntas: 3,
+          tl_sudah_tuntas: 4,
+        });
+
+        if (!Number.isFinite(hasilUji)) {
+          throw new Error("Hasil rumus bukan angka yang valid.");
+        }
+      } catch (error) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message: "Rumus Indeks Capaian tidak valid.",
+            error:
+              error instanceof Error
+                ? error.message
+                : "Rumus tidak dapat dihitung.",
+          },
+          { status: 400 }
+        );
+      }
+
+      await pool.query(
+        `
+        UPDATE public.pengaturan_rumus_capaian
+        SET
+          rumus_indeks = $1,
+          versi = versi + 1,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1
+        `,
+        [rumusIndeks]
+      );
+
+      await pool.query(
+        `
+        UPDATE public.dashboard_capaian_periode
+        SET
+          indeks_capaian_mode = 'OTOMATIS',
+          updated_at = CURRENT_TIMESTAMP
+        WHERE tahun = $1
+        `,
+        [settingsYear]
+      );
+
+      return NextResponse.json({
+        ok: true,
+        year: settingsYear,
+        message: "Rumus Indeks Capaian berhasil disimpan.",
+      });
+    }
     if (body.rumus_capaian !== undefined || body.rumus_indeks !== undefined) {
       const rumusCapaian = String(body.rumus_capaian ?? "").trim();
 

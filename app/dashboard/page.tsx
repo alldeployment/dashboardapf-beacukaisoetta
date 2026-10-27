@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
@@ -57,11 +57,35 @@ export default function DashboardPage() {
     indeks_capaian_manual: number;
     indeks_capaian_otomatis: number;
     indeks_capaian_mode: "MANUAL" | "OTOMATIS";
+    persentase_saldo?: number;
+    rumus?: {
+      rumus_capaian?: string;
+      rumus_indeks?: string;
+      rumus_persentase_saldo?: string;
+    };
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedYear, setSelectedYear] = useState(2026);
   const [yearInput, setYearInput] = useState("2026");
+  const [rumusCapaian, setRumusCapaian] = useState(
+    "((70% * tl_belum_tuntas) + tl_sudah_tuntas) / saldo"
+  );
+
+  const [rumusPersentaseSaldo, setRumusPersentaseSaldo] = useState(
+    "((70% * tl_belum_tuntas) + tl_sudah_tuntas) / saldo"
+  );
+
+  const [rumusIndeks, setRumusIndeks] = useState(
+    "min(capaian / 81 * 100, 120%)"
+  );
+
+  const [showIndeksRumusModal, setShowIndeksRumusModal] = useState(false);
+
+  const [showCapaianRumusModal, setShowCapaianRumusModal] = useState(false);
+  const [showSaldoRumusModal, setShowSaldoRumusModal] = useState(false);
+
+  const [savingRumus, setSavingRumus] = useState(false);
 
   const loadDashboard = useCallback(async (year: number) => {
     try {
@@ -99,12 +123,32 @@ export default function DashboardPage() {
       }
 
       if (!capaianRes.ok || !capaianJson?.ok) {
-        throw new Error(capaianJson?.message || "Gagal mengambil data capaian");
+        throw new Error(
+          [
+            capaianJson?.message || "Gagal mengambil data capaian",
+            capaianJson?.error || "",
+          ]
+            .filter(Boolean)
+            .join(" - ")
+        );
       }
-
       setSummary(summaryJson.data ?? null);
       setRecommendations(recommendationJson.data ?? []);
       setCapaianData(capaianJson.data ?? null);
+      const savedRumus = capaianJson.data?.rumus;
+
+      if (savedRumus) {
+        setRumusCapaian(
+          savedRumus.rumus_capaian ??
+            "((70% * tl_belum_tuntas) + tl_sudah_tuntas) / saldo"
+        );
+
+        setRumusPersentaseSaldo(
+          savedRumus.rumus_persentase_saldo ??
+            "((70% * tl_belum_tuntas) + tl_sudah_tuntas) / saldo"
+        );
+        setRumusIndeks(savedRumus.rumus_indeks ?? "min(capaian / 0.62, 1.2)");
+      }
     } catch (err) {
       console.error("DASHBOARD ERROR:", err);
 
@@ -151,7 +195,68 @@ export default function DashboardPage() {
 
     return () => clearInterval(interval);
   }, [selectedYear, loadDashboard, yearReady]);
+  async function saveRumus(type: "CAPAIAN" | "SALDO" | "INDEKS") {
+    const formula =
+      type === "CAPAIAN"
+        ? rumusCapaian
+        : type === "SALDO"
+        ? rumusPersentaseSaldo
+        : rumusIndeks;
 
+    if (!formula.trim()) {
+      alert("Rumus tidak boleh kosong.");
+      return;
+    }
+
+    try {
+      setSavingRumus(true);
+
+      const body =
+        type === "CAPAIAN"
+          ? {
+              year: selectedYear,
+              rumus_capaian: formula.trim(),
+            }
+          : type === "SALDO"
+          ? {
+              year: selectedYear,
+              rumus_persentase_saldo: formula.trim(),
+            }
+          : {
+              year: selectedYear,
+              rumus_indeks: formula.trim(),
+            };
+
+      const response = await fetch("/api/dashboard/capaian", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || result?.ok === false) {
+        throw new Error(result?.message || "Gagal menyimpan rumus.");
+      }
+
+      if (type === "CAPAIAN") {
+        setShowCapaianRumusModal(false);
+      } else if (type === "SALDO") {
+        setShowSaldoRumusModal(false);
+      } else {
+        setShowIndeksRumusModal(false);
+      }
+
+      await loadDashboard(selectedYear);
+      alert("Rumus berhasil disimpan.");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Gagal menyimpan rumus.");
+    } finally {
+      setSavingRumus(false);
+    }
+  }
   const safeNumber = (value: unknown): number => {
     const number = Number(value);
 
@@ -239,11 +344,15 @@ export default function DashboardPage() {
   // RINGKASAN SALDO GLOBAL
   const masukSaldoGlobal = safeNumber(summary?.masukSaldo);
   const belumSaldoGlobal = safeNumber(summary?.belumSaldo);
-  const persentaseSaldoGlobal = safeNumber(summary?.persentaseSaldo);
+
+  const persentaseSaldoGlobal =
+    capaianData?.persentase_saldo !== undefined
+      ? safeNumber(capaianData.persentase_saldo) * 100
+      : safeNumber(summary?.persentaseSaldo);
+
   const capaianOtomatis = safeNumber(
     capaianData?.capaian_otomatis ?? summary?.capaian
   );
-
   const capaianPersen = Math.round(capaianOtomatis * 100);
 
   // API mengirim indeks dalam bentuk rasio.
@@ -258,31 +367,54 @@ export default function DashboardPage() {
   BPK
   ============================================================
   */
+  const normalizeFollowUpStatus = (value: string) => {
+    const status = (value ?? "").trim().toUpperCase();
+
+    if (status === "BELUM_TUNTAS" || status === "TL_BELUM_TUNTAS") {
+      return "SUDAH_TL";
+    }
+
+    if (status === "TL_SUDAH_TUNTAS") {
+      return "SUDAH_TUNTAS";
+    }
+
+    return status;
+  };
 
   const bpkRecommendations = recommendations.filter(
     (item) => (item.source ?? "").trim().toUpperCase() === "BPK"
   );
-  
+
   const bpkData = {
     total: bpkRecommendations.length,
-  
+
     masukSaldo: bpkRecommendations.filter(
-      (item) =>
-        (item.saldo_status ?? "").trim().toUpperCase() === "MASUK_SALDO"
+      (item) => (item.saldo_status ?? "").trim().toUpperCase() === "MASUK_SALDO"
     ).length,
-  
+
     belumSaldo: bpkRecommendations.filter(
-      (item) =>
-        (item.saldo_status ?? "").trim().toUpperCase() === "BELUM_SALDO"
+      (item) => (item.saldo_status ?? "").trim().toUpperCase() === "BELUM_SALDO"
     ).length,
-  
+
     keuangan: bpkRecommendations.filter(
       (item) => (item.category ?? "").trim().toUpperCase() === "KEUANGAN"
     ).length,
-  
+
     bukanKeuangan: bpkRecommendations.filter(
+      (item) => (item.category ?? "").trim().toUpperCase() === "BUKAN_KEUANGAN"
+    ).length,
+
+    belumTl: bpkRecommendations.filter(
+      (item) => normalizeFollowUpStatus(item.follow_up_status) === "BELUM_TL"
+    ).length,
+
+    sudahTl: bpkRecommendations.filter(
+      (item) => normalizeFollowUpStatus(item.follow_up_status) === "SUDAH_TL"
+    ).length,
+
+    sudahTuntas: bpkRecommendations.filter(
       (item) =>
-        (item.category ?? "").trim().toUpperCase() === "BUKAN_KEUANGAN"
+        normalizeFollowUpStatus(item.follow_up_status) === "SUDAH_TUNTAS"
     ).length,
   };
 
@@ -292,7 +424,45 @@ export default function DashboardPage() {
     bpkData.belumSaldo,
     bpkData.total
   );
+  const persentaseBpkBelumTl = safePercentage(bpkData.belumTl, bpkData.total);
 
+  const persentaseBpkSudahTl = safePercentage(bpkData.sudahTl, bpkData.total);
+
+  const persentaseBpkSudahTuntas = safePercentage(
+    bpkData.sudahTuntas,
+    bpkData.total
+  );
+  // RINGKASAN STATUS SALDO ITJEN
+  const itjenRecommendationsBySource = recommendations.filter(
+    (item) => (item.source ?? "").trim().toUpperCase() === "ITJEN"
+  );
+  console.log(
+    "DATA KATEGORI ITJEN:",
+    itjenRecommendationsBySource.map((item) => ({
+      id: item.id,
+      source: item.source,
+      category: item.category,
+      description: item.description,
+    }))
+  );
+  const itjenSaldoData = {
+    masukSaldo: itjenRecommendationsBySource.filter(
+      (item) => (item.saldo_status ?? "").trim().toUpperCase() === "MASUK_SALDO"
+    ).length,
+
+    belumSaldo: itjenRecommendationsBySource.filter(
+      (item) => (item.saldo_status ?? "").trim().toUpperCase() === "BELUM_SALDO"
+    ).length,
+  };
+  const persentaseSaldoItjen = safePercentage(
+    itjenSaldoData.masukSaldo,
+    itjenRecommendationsBySource.length
+  );
+
+  const persentaseBelumSaldoItjen = safePercentage(
+    itjenSaldoData.belumSaldo,
+    itjenRecommendationsBySource.length
+  );
   /*
   ============================================================
   ITJEN
@@ -300,12 +470,49 @@ export default function DashboardPage() {
   */
 
   const itjenData = {
-    total: safeNumber(summary?.itjen?.total),
-    belumTl: safeNumber(summary?.itjen?.belumTl),
-    sudahTl: safeNumber(summary?.itjen?.sudahTl),
-    sudahTuntas: safeNumber(summary?.itjen?.sudahTuntas),
-  };
+    total: itjenRecommendationsBySource.length,
+    laporanKeuangan: itjenRecommendationsBySource.filter((item) => {
+      const category = (item.category ?? "")
+        .trim()
+        .toUpperCase()
+        .replace(/[\s-]+/g, "_");
 
+      return category === "KEUANGAN" || category === "LAPORAN_KEUANGAN";
+    }).length,
+
+    bukanKeuangan: itjenRecommendationsBySource.filter(
+      (item) =>
+        (item.category ?? "")
+          .trim()
+          .toUpperCase()
+          .replace(/[\s-]+/g, "_") === "BUKAN_KEUANGAN"
+    ).length,
+
+    tindakPemeriksaan: itjenRecommendationsBySource.filter((item) => {
+      const category = (item.category ?? "")
+        .trim()
+        .toUpperCase()
+        .replace(/[\s-]+/g, "_");
+
+      return (
+        category === "TINDAK_PEMERIKSAAN" ||
+        category === "TINDAK_LANJUT_PEMERIKSAAN"
+      );
+    }).length,
+
+    belumTl: itjenRecommendationsBySource.filter(
+      (item) => normalizeFollowUpStatus(item.follow_up_status) === "BELUM_TL"
+    ).length,
+
+    sudahTl: itjenRecommendationsBySource.filter(
+      (item) => normalizeFollowUpStatus(item.follow_up_status) === "SUDAH_TL"
+    ).length,
+
+    sudahTuntas: itjenRecommendationsBySource.filter(
+      (item) =>
+        normalizeFollowUpStatus(item.follow_up_status) === "SUDAH_TUNTAS"
+    ).length,
+  };
   const persentaseTuntas = safePercentage(
     itjenData.sudahTuntas,
     itjenData.total
@@ -314,14 +521,6 @@ export default function DashboardPage() {
   const persentaseSudahTl = safePercentage(itjenData.sudahTl, itjenData.total);
 
   const persentaseBelumTl = safePercentage(itjenData.belumTl, itjenData.total);
-
-  const normalizeFollowUpStatus = (value: string) => {
-    const status = (value ?? "").trim().toUpperCase();
-
-    if (status === "BELUM_TUNTAS") return "SUDAH_TL";
-
-    return status;
-  };
 
   const groupedRecommendations = new Map<
     string,
@@ -607,128 +806,245 @@ export default function DashboardPage() {
             </div>
           </div>
         </section>
+
         {/* CAPAIAN KESELURUHAN */}
         <section className="mb-6">
           <div className="grid gap-4 lg:grid-cols-2">
             {/* CAPAIAN OTOMATIS BERDASARKAN RUMUS */}
-            <div className="rounded-2xl border border-white/10 bg-white/95 p-6 shadow-xl">
-              <div className="flex flex-col gap-5">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#9B7518]">
-                    Capaian Otomatis
-                  </p>
-                  <h3 className="mt-1 text-xl font-bold text-[#071426]">
-                    Hasil Perhitungan Sistem
-                  </h3>
-                  <p className="mt-2 text-sm text-slate-500">
-                    Berdasarkan perhitungan capaian rekomendasi yang diterima
-                    dari sistem.
-                  </p>
+            <div className="relative overflow-hidden rounded-2xl border border-blue-200/70 bg-gradient-to-br from-white via-white to-sky-50 p-6 shadow-xl transition duration-300 hover:shadow-2xl">
+              {/* AKSEN DEKORATIF */}
+              <div className="pointer-events-none absolute -right-10 -top-12 h-40 w-40 rounded-full bg-blue-500/10 blur-2xl" />
+
+              <div className="relative z-10 flex h-full flex-col justify-between gap-7">
+                {/* HEADER */}
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1">
+                      <span className="h-2 w-2 rounded-full bg-blue-500" />
+
+                      <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-blue-700">
+                        Capaian Otomatis
+                      </span>
+                    </div>
+
+                    <h3 className="text-lg font-bold tracking-tight text-[#071426]">
+                      Hasil Perhitungan Sistem
+                    </h3>
+
+                    <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
+                      Berdasarkan perhitungan capaian rekomendasi yang diterima
+                      dari sistem.
+                    </p>
+                  </div>
+
+                  {/* NILAI PERSENTASE */}
+                  <div className="min-w-[112px] rounded-2xl border border-blue-200/80 bg-white/90 px-4 py-3 shadow-sm">
+                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                      Capaian Saat Ini
+                    </p>
+
+                    <p className="mt-1 text-3xl font-extrabold tracking-tight text-blue-600">
+                      {loading ? "—" : `${capaianPersen}%`}
+                    </p>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-4">
-                  <div className="h-4 flex-1 overflow-hidden rounded-full bg-slate-100">
+                {/* PROGRESS BAR */}
+                <div>
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <span className="text-xs font-semibold text-slate-600">
+                      Progres Capaian
+                    </span>
+
+                    <span className="rounded-full bg-blue-100 px-3 py-1 text-[10px] font-bold text-blue-700">
+                      Skala 0–100%
+                    </span>
+                  </div>
+
+                  <div className="h-3 overflow-hidden rounded-full bg-slate-200/80 p-[2px]">
                     <div
-                      className="h-full rounded-full bg-blue-600 transition-all"
+                      className="h-full rounded-full bg-gradient-to-r from-blue-700 via-blue-500 to-cyan-400 transition-all duration-700 ease-out"
                       style={{
                         width: `${Math.min(100, Math.max(0, capaianPersen))}%`,
                       }}
                     />
                   </div>
-                  <span className="min-w-[80px] text-right text-3xl font-bold text-[#071426]">
-                    {loading ? "—" : `${capaianPersen}%`}
-                  </span>
+
+                  <div className="mt-2 flex justify-between text-[10px] font-medium text-slate-400">
+                    <span>0%</span>
+                    <span>100%</span>
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* INDEKS CAPAIAN */}
-            <div className="rounded-2xl border border-white/10 bg-white/95 p-6 shadow-xl">
-              <div className="flex flex-col gap-5">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#9B7518]">
-                    Capaian Keseluruhan
-                  </p>
-                  <h3 className="mt-1 text-xl font-bold text-[#071426]">
-                    Indeks Capaian Tindak Lanjut
-                  </h3>
-                  <p className="mt-2 text-sm text-slate-500">
-                    Nilai indeks capaian keseluruhan yang tersimpan pada sistem.
-                  </p>
+            <div className="relative overflow-hidden rounded-2xl border border-amber-200/70 bg-gradient-to-br from-white via-white to-amber-50 p-6 shadow-xl transition duration-300 hover:shadow-2xl">
+              {/* AKSEN DEKORATIF */}
+              <div className="pointer-events-none absolute -right-10 -top-12 h-40 w-40 rounded-full bg-[#D4A72C]/10 blur-2xl" />
+
+              <div className="relative z-10 flex h-full flex-col justify-between gap-7">
+                {/* HEADER */}
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1">
+                      <span className="h-2 w-2 rounded-full bg-[#D4A72C]" />
+
+                      <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#9B7518]">
+                        Capaian Keseluruhan
+                      </span>
+                    </div>
+
+                    <h3 className="text-lg font-bold tracking-tight text-[#071426]">
+                      Indeks Capaian Tindak Lanjut
+                    </h3>
+
+                    <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
+                      Nilai indeks berdasarkan rumus yang tersimpan pada sistem.
+                    </p>
+                  </div>
+
+                  {/* NILAI INDEKS */}
+                  {/* PENGATURAN DAN NILAI INDEKS */}
+                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowIndeksRumusModal(true)}
+                      disabled={savingRumus}
+                      className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs font-semibold text-amber-700 transition hover:bg-amber-50 disabled:opacity-50"
+                    >
+                      Atur Rumus
+                    </button>
+
+                    <div className="min-w-[112px] rounded-2xl border border-amber-200/80 bg-white/90 px-4 py-3 shadow-sm">
+                      <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                        Nilai Indeks
+                      </p>
+
+                      <p className="mt-1 text-3xl font-extrabold tracking-tight text-[#9B7518]">
+                        {loading ? "—" : `${indeksCapaianPersen}%`}
+                      </p>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-4">
-                  <div className="h-4 flex-1 overflow-hidden rounded-full bg-slate-100">
+                {/* PROGRESS INDEKS */}
+                <div>
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <span className="text-xs font-semibold text-slate-600">
+                      Progres Indeks
+                    </span>
+
+                    <span className="rounded-full bg-amber-100 px-3 py-1 text-[10px] font-bold text-[#8A6810]">
+                      Skala 0–120%
+                    </span>
+                  </div>
+
+                  <div className="h-3 overflow-hidden rounded-full bg-slate-200/80 p-[2px]">
                     <div
-                      className="h-full rounded-full bg-[#D4A72C] transition-all"
+                      className="h-full rounded-full bg-gradient-to-r from-[#B88912] via-[#D4A72C] to-[#F0C85A] transition-all duration-700 ease-out"
                       style={{
                         width: `${(indeksCapaianBar / 120) * 100}%`,
                       }}
                     />
                   </div>
-                  <span className="min-w-[80px] text-right text-3xl font-bold text-[#071426]">
-                    {loading ? "—" : `${indeksCapaianPersen}%`}
-                  </span>
+
+                  <div className="mt-2 flex justify-between text-[10px] font-medium text-slate-400">
+                    <span>0%</span>
+                    <span>120%</span>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </section>
 
-        {/* RINGKASAN SALDO GLOBAL - TAMBAHAN BARU */}
-        <section className="mb-6">
-          <div className="mb-4">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#F0C85A]"></p>
+        {/* STATUS SALDO SELURUH REKOMENDASI */}
+        <section className="mb-8">
+          <div className="mb-5">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#F0C85A]">
+              Ringkasan Saldo
+            </p>
+
             <h2 className="mt-1 text-xl font-bold text-white">
               Status Saldo Seluruh Rekomendasi
             </h2>
+
             <p className="mt-1 text-sm text-white/70">
-              Rekapitulasi saldo rekomendasi BPK dan ITJEN secara keseluruhan.
+              Rekapitulasi saldo dan indeks capaian tindak lanjut rekomendasi
+              BPK dan ITJEN.
             </p>
           </div>
 
+          {/* GRID EMPAT KARTU */}
           <div className="grid gap-4 md:grid-cols-3">
             {/* MASUK SALDO */}
-            <div className="rounded-2xl border border-green-100 bg-white/95 p-5 shadow-xl">
-              <p className="text-xs font-bold uppercase tracking-wider text-green-700">
-                Masuk Saldo
-              </p>
-              <p className="mt-3 text-3xl font-bold text-green-600">
-                {loading ? "—" : masukSaldoGlobal.toLocaleString("id-ID")}
-              </p>
-              <p className="mt-2 text-xs text-slate-500">
-                Total rekomendasi yang masuk saldo
-              </p>
+            <div className="flex min-h-[155px] flex-col justify-between rounded-2xl border border-green-200/70 bg-white p-5 shadow-lg transition duration-200 hover:-translate-y-1 hover:shadow-2xl">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-bold uppercase tracking-wider text-green-700">
+                  Masuk Saldo
+                </p>
+
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-green-50 text-lg font-bold text-green-600">
+                  ✓
+                </div>
+              </div>
+
+              <div>
+                <p className="text-3xl font-bold tracking-tight text-green-600">
+                  {loading ? "—" : masukSaldoGlobal.toLocaleString("id-ID")}
+                </p>
+
+                <p className="mt-2 text-xs leading-5 text-slate-500">
+                  Total rekomendasi yang masuk saldo
+                </p>
+              </div>
             </div>
 
             {/* BELUM MASUK SALDO */}
-            <div className="rounded-2xl border border-orange-100 bg-white/95 p-5 shadow-xl">
-              <p className="text-xs font-bold uppercase tracking-wider text-orange-700">
-                Belum Masuk Saldo
-              </p>
-              <p className="mt-3 text-3xl font-bold text-orange-600">
-                {loading ? "—" : belumSaldoGlobal.toLocaleString("id-ID")}
-              </p>
-              <p className="mt-2 text-xs text-slate-500">
-                Total rekomendasi yang belum masuk saldo
-              </p>
+            <div className="flex min-h-[155px] flex-col justify-between rounded-2xl border border-orange-200/70 bg-white p-5 shadow-lg transition duration-200 hover:-translate-y-1 hover:shadow-2xl">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-bold uppercase tracking-wider text-orange-700">
+                  Belum Masuk Saldo
+                </p>
+
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-lg font-bold text-orange-600">
+                  !
+                </div>
+              </div>
+
+              <div>
+                <p className="text-3xl font-bold tracking-tight text-orange-600">
+                  {loading ? "—" : belumSaldoGlobal.toLocaleString("id-ID")}
+                </p>
+
+                <p className="mt-2 text-xs leading-5 text-slate-500">
+                  Total rekomendasi yang belum masuk saldo
+                </p>
+              </div>
             </div>
 
             {/* PERSENTASE SALDO */}
-            <div className="rounded-2xl border border-blue-100 bg-white/95 p-5 shadow-xl">
-              <p className="text-xs font-bold uppercase tracking-wider text-blue-700">
-                Persentase Saldo
-              </p>
-              <p className="mt-3 text-3xl font-bold text-blue-600">
-                {loading
-                  ? "—"
-                  : `${persentaseSaldoGlobal.toLocaleString("id-ID", {
-                      maximumFractionDigits: 2,
-                    })}%`}
-              </p>
-              <p className="mt-2 text-xs text-slate-500">
-                Persentase rekomendasi yang masuk saldo
-              </p>
+            <div className="flex min-h-[155px] flex-col rounded-2xl border border-blue-200/70 bg-white p-5 shadow-lg transition duration-200 hover:-translate-y-1 hover:shadow-2xl">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-xs font-bold uppercase tracking-wider text-blue-700">
+                  Persentase Saldo
+                </p>
+              </div>
+
+              <div className="mt-auto pt-5">
+                <p className="text-3xl font-bold tracking-tight text-blue-600">
+                  {loading
+                    ? "—"
+                    : `${persentaseSaldoGlobal.toLocaleString("id-ID", {
+                        maximumFractionDigits: 2,
+                      })}%`}
+                </p>
+
+                <p className="mt-2 text-xs leading-5 text-slate-500">
+                  Persentase rekomendasi yang masuk saldo
+                </p>
+              </div>
             </div>
           </div>
         </section>
@@ -746,299 +1062,561 @@ export default function DashboardPage() {
           </div>
 
           <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
-            {/* SALDO */}
+            {/* SALDO BPK */}
+            <div className="relative flex h-full min-h-[390px] flex-col overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-br from-white via-white to-emerald-50 p-6 shadow-xl transition duration-300 hover:shadow-2xl">
+              {/* AKSEN DEKORATIF */}
+              <div className="pointer-events-none absolute -right-12 -top-12 h-40 w-40 rounded-full bg-emerald-400/10 blur-3xl" />
 
-            <div className="rounded-2xl border border-white/10 bg-white/95 p-6 shadow-xl">
-              <div className="mb-6">
-                <h3 className="font-bold text-[#071426]">Persentase Saldo</h3>
+              {/* HEADER */}
+              <div className="relative z-10 flex items-start justify-between gap-3">
+                <div>
+                  <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
 
-                <p className="mt-1 text-xs text-slate-400">
-                  Status saldo rekomendasi BPK
-                </p>
-              </div>
-
-              <div className="flex items-center justify-center">
-                <div
-                  className="relative flex h-48 w-48 items-center justify-center rounded-full"
-                  style={{
-                    background: `conic-gradient(
-                      #16A34A ${persentaseSaldo}%,
-                      #E2E8F0 ${persentaseSaldo}% 100%
-                    )`,
-                  }}
-                >
-                  <div className="flex h-36 w-36 flex-col items-center justify-center rounded-full bg-white">
-                    <span className="text-4xl font-bold text-[#071426]">
-                      {persentaseSaldo}%
-                    </span>
-
-                    <span className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                      Masuk Saldo
+                    <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-emerald-700">
+                      BPK Monitoring
                     </span>
                   </div>
-                </div>
-              </div>
 
-              <div className="mt-6 grid grid-cols-2 gap-3">
-                <div className="rounded-xl bg-green-50 p-4">
-                  <p className="text-xs text-green-600">Masuk Saldo</p>
+                  <h3 className="text-lg font-bold tracking-tight text-[#071426]">
+                    Persentase Saldo
+                  </h3>
 
-                  <p className="mt-1 text-xl font-bold text-green-700">
-                    {bpkData.masukSaldo}
+                  <p className="mt-1 text-sm leading-5 text-slate-500">
+                    Status saldo rekomendasi BPK.
                   </p>
                 </div>
 
-                <div className="rounded-xl bg-slate-100 p-4">
-                  <p className="text-xs text-slate-500">Belum Saldo</p>
+                <div className="rounded-xl border border-emerald-100 bg-white/90 p-3 shadow-sm">
+                  <span className="text-lg font-bold text-emerald-600">%</span>
+                </div>
+              </div>
 
-                  <p className="mt-1 text-xl font-bold text-slate-700">
+              {/* LINGKARAN PERSENTASE */}
+              <div className="relative z-10 flex flex-1 flex-col items-center justify-center py-6">
+                <div
+                  className="relative flex h-48 w-48 items-center justify-center rounded-full p-[10px] shadow-lg shadow-emerald-900/10"
+                  style={{
+                    background: `conic-gradient(
+          #16A34A 0% ${persentaseSaldo}%,
+          #E2E8F0 ${persentaseSaldo}% 100%
+        )`,
+                  }}
+                >
+                  {/* LINGKARAN BAGIAN DALAM */}
+                  <div className="flex h-full w-full flex-col items-center justify-center rounded-full border border-emerald-100 bg-white shadow-inner">
+                    <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                      Pencapaian Saldo
+                    </span>
+
+                    <p className="mt-1 text-4xl font-extrabold tracking-tight text-emerald-600">
+                      {persentaseSaldo}%
+                    </p>
+
+                    <div className="mt-2 rounded-full bg-emerald-50 px-3 py-1">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+                        Masuk Saldo
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <p className="mt-4 text-xs text-slate-500">
+                  Persentase rekomendasi BPK yang masuk saldo
+                </p>
+              </div>
+
+              {/* RINGKASAN JUMLAH SALDO */}
+              <div className="relative z-10 grid grid-cols-2 gap-3">
+                <div className="rounded-xl border border-emerald-100 bg-white/90 p-4 shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+
+                    <p className="text-xs font-semibold text-slate-500">
+                      Masuk Saldo
+                    </p>
+                  </div>
+
+                  <p className="mt-2 text-2xl font-extrabold text-emerald-600">
+                    {bpkData.masukSaldo}
+                  </p>
+
+                  <p className="mt-1 text-[10px] text-slate-400">
+                    Rekomendasi masuk saldo
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-white/90 p-4 shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-slate-400" />
+
+                    <p className="text-xs font-semibold text-slate-500">
+                      Belum Saldo
+                    </p>
+                  </div>
+
+                  <p className="mt-2 text-2xl font-extrabold text-slate-700">
                     {bpkData.belumSaldo}
+                  </p>
+
+                  <p className="mt-1 text-[10px] text-slate-400">
+                    Rekomendasi belum masuk saldo
                   </p>
                 </div>
               </div>
             </div>
 
-            {/* CATEGORY */}
-
-            <div className="rounded-2xl border border-white/10 bg-white/95 p-6 shadow-xl">
-              <div className="mb-6">
-                <h3 className="font-bold text-[#071426]">
-                  Klasifikasi Rekomendasi
-                </h3>
-
-                <p className="mt-1 text-xs text-slate-400">
-                  Distribusi rekomendasi berdasarkan kategori pemeriksaan
-                </p>
-              </div>
-
-              <div className="space-y-7">
-                {/* KEUANGAN */}
-
+            {/* KLASIFIKASI REKOMENDASI BPK */}
+            <div className="relative overflow-hidden rounded-2xl border border-white/20 bg-white/95 p-6 shadow-xl transition duration-300 hover:shadow-2xl">
+              {/* HEADER */}
+              <div className="mb-7 flex items-start justify-between gap-3">
                 <div>
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="flex items-center gap-2 text-sm font-medium text-slate-600">
-                      <span className="h-2.5 w-2.5 rounded-full bg-[#071426]" />
-                      Laporan Keuangan
-                    </span>
-
-                    <span className="text-sm font-bold text-[#071426]">
-                      {bpkData.keuangan}
+                  <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1">
+                    <span className="h-2 w-2 rounded-full bg-[#D4A72C]" />
+                    <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-amber-800">
+                      BPK Classification
                     </span>
                   </div>
 
-                  <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-                    <div
-                      className="h-full rounded-full bg-[#071426] transition-all"
-                      style={{
-                        width: `${safePercentage(
-                          bpkData.keuangan,
-                          bpkData.total
-                        )}%`,
-                      }}
-                    />
-                  </div>
+                  <h3 className="text-lg font-bold tracking-tight text-[#071426]">
+                    Klasifikasi Rekomendasi
+                  </h3>
+
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    Distribusi rekomendasi BPK berdasarkan kategori pemeriksaan.
+                  </p>
                 </div>
 
-                {/* BUKAN KEUANGAN */}
-
-                <div>
-                  <div className="mb-2 flex items-center justify-between">
-                    <span className="flex items-center gap-2 text-sm font-medium text-slate-600">
-                      <span className="h-2.5 w-2.5 rounded-full bg-[#D4A72C]" />
-                      Bukan Keuangan
-                    </span>
-
-                    <span className="text-sm font-bold text-[#071426]">
-                      {bpkData.bukanKeuangan}
-                    </span>
-                  </div>
-
-                  <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-                    <div
-                      className="h-full rounded-full bg-[#D4A72C] transition-all"
-                      style={{
-                        width: `${safePercentage(
-                          bpkData.bukanKeuangan,
-                          bpkData.total
-                        )}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-8 grid grid-cols-3 gap-3">
-                <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
-                  <p className="text-[10px] font-bold uppercase text-slate-400">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     Total BPK
                   </p>
+                  <p className="mt-1 text-2xl font-extrabold text-[#071426]">
+                    {loading ? "—" : bpkData.total}
+                  </p>
+                </div>
+              </div>
 
-                  <p className="mt-1 text-xl font-bold text-[#071426]">
-                    {bpkData.total}
+              {/* LAPORAN KEUANGAN */}
+              <div className="mb-7">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <span className="flex items-center gap-2 text-sm font-medium text-slate-600">
+                    <span className="h-2.5 w-2.5 rounded-full bg-[#071426]" />
+                    Laporan Keuangan
+                  </span>
+
+                  <div className="text-right">
+                    <span className="text-sm font-bold text-[#071426]">
+                      {loading ? "—" : bpkData.keuangan}
+                    </span>
+                    <span className="ml-2 text-xs text-slate-400">
+                      (
+                      {loading
+                        ? "—"
+                        : safePercentage(bpkData.keuangan, bpkData.total)}
+                      %)
+                    </span>
+                  </div>
+                </div>
+
+                <div className="h-3 overflow-hidden rounded-full bg-slate-100 p-[2px]">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-[#071426] to-slate-500 transition-all duration-700"
+                    style={{
+                      width: `${
+                        loading
+                          ? 0
+                          : safePercentage(bpkData.keuangan, bpkData.total)
+                      }%`,
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* BUKAN KEUANGAN */}
+              <div className="mb-7">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <span className="flex items-center gap-2 text-sm font-medium text-slate-600">
+                    <span className="h-2.5 w-2.5 rounded-full bg-[#D4A72C]" />
+                    Bukan Keuangan
+                  </span>
+
+                  <div className="text-right">
+                    <span className="text-sm font-bold text-[#071426]">
+                      {loading ? "—" : bpkData.bukanKeuangan}
+                    </span>
+                    <span className="ml-2 text-xs text-slate-400">
+                      (
+                      {loading
+                        ? "—"
+                        : safePercentage(bpkData.bukanKeuangan, bpkData.total)}
+                      %)
+                    </span>
+                  </div>
+                </div>
+
+                <div className="h-3 overflow-hidden rounded-full bg-slate-100 p-[2px]">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-[#B88912] to-[#F0C85A] transition-all duration-700"
+                    style={{
+                      width: `${
+                        loading
+                          ? 0
+                          : safePercentage(bpkData.bukanKeuangan, bpkData.total)
+                      }%`,
+                    }}
+                  />
+                </div>
+              </div>
+              {/* STATUS TINDAK LANJUT BPK */}
+              <div className="mb-6 border-t border-slate-100 pt-5">
+                <h4 className="mb-4 text-sm font-bold text-[#071426]">
+                  Status Tindak Lanjut BPK
+                </h4>
+
+                <div className="space-y-5">
+                  {[
+                    {
+                      label: "Belum TL",
+                      count: bpkData.belumTl,
+                      percent: persentaseBpkBelumTl,
+                      color: "bg-rose-500",
+                      text: "text-rose-700",
+                    },
+                    {
+                      label: "Sudah TL",
+                      count: bpkData.sudahTl,
+                      percent: persentaseBpkSudahTl,
+                      color: "bg-amber-500",
+                      text: "text-amber-700",
+                    },
+                    {
+                      label: "Sudah Tuntas",
+                      count: bpkData.sudahTuntas,
+                      percent: persentaseBpkSudahTuntas,
+                      color: "bg-emerald-500",
+                      text: "text-emerald-700",
+                    },
+                  ].map((item) => (
+                    <div key={item.label}>
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <span className="text-sm font-medium text-slate-600">
+                          {item.label}
+                        </span>
+
+                        <span className={`text-sm font-bold ${item.text}`}>
+                          {loading ? "—" : item.count}{" "}
+                          <span className="text-xs">
+                            ({loading ? "—" : `${item.percent}%`})
+                          </span>
+                        </span>
+                      </div>
+
+                      <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className={`h-full rounded-full ${item.color} transition-all duration-700`}
+                          style={{
+                            width: `${loading ? 0 : item.percent}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <p className="mt-3 text-[10px] text-slate-400">
+                  Persentase dihitung dari seluruh rekomendasi BPK.
+                </p>
+              </div>
+              {/* RINGKASAN STATISTIK */}
+              <div className="grid grid-cols-3 gap-3 border-t border-slate-100 pt-5">
+                <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Total BPK
+                  </p>
+                  <p className="mt-2 text-xl font-extrabold text-[#071426]">
+                    {loading ? "—" : bpkData.total}
                   </p>
                 </div>
 
-                <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
-                  <p className="text-[10px] font-bold uppercase text-slate-400">
+                <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     Keuangan
                   </p>
-
-                  <p className="mt-1 text-xl font-bold text-[#071426]">
-                    {bpkData.keuangan}
+                  <p className="mt-2 text-xl font-extrabold text-[#071426]">
+                    {loading ? "—" : bpkData.keuangan}
                   </p>
                 </div>
 
-                <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
-                  <p className="text-[10px] font-bold uppercase text-slate-400">
+                <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                     Non Keuangan
                   </p>
-
-                  <p className="mt-1 text-xl font-bold text-[#071426]">
-                    {bpkData.bukanKeuangan}
+                  <p className="mt-2 text-xl font-extrabold text-[#071426]">
+                    {loading ? "—" : bpkData.bukanKeuangan}
                   </p>
                 </div>
               </div>
             </div>
           </div>
         </section>
+
         {/* ITJEN */}
-        <section className="mb-6">
+        <section className="mb-8">
           <div className="mb-4">
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#F0C85A]">
               Itjen Monitoring
             </p>
 
-            <h2 className="mt-1 text-xl font-bold text-white">
-              Monitoring Tindak Lanjut Itjen
+            <h2 className="mt-1 text-2xl font-bold tracking-tight text-white">
+              Monitoring Saldo dan Tindak Lanjut Itjen
             </h2>
+
+            <p className="mt-1 text-sm text-white/70">
+              Ringkasan saldo dan status penyelesaian rekomendasi Itjen periode{" "}
+              {selectedYear}.
+            </p>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/95 p-6 shadow-xl">
-            <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
-              {/* STATUS */}
+          <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+            {/* KARTU PERSENTASE SALDO ITJEN */}
+            <div className="relative flex min-h-[390px] flex-col overflow-hidden rounded-2xl border border-sky-200/70 bg-gradient-to-br from-white via-white to-sky-50 p-6 shadow-xl transition duration-300 hover:shadow-2xl">
+              <div className="pointer-events-none absolute -right-12 -top-12 h-40 w-40 rounded-full bg-sky-400/15 blur-3xl" />
 
-              <div>
-                <h3 className="font-bold text-[#071426]">
-                  Status Tindak Lanjut
-                </h3>
+              {/* HEADER */}
+              <div className="relative z-10 flex items-start justify-between gap-3">
+                <div>
+                  <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-3 py-1">
+                    <span className="h-2 w-2 rounded-full bg-sky-500" />
 
-                <p className="mt-1 text-xs text-slate-400">
-                  Distribusi status rekomendasi Itjen
-                </p>
-
-                <div className="mt-7 space-y-6">
-                  {/* TUNTAS */}
-
-                  <div>
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className="flex items-center gap-2 text-sm font-medium text-slate-600">
-                        <span className="h-2.5 w-2.5 rounded-full bg-green-500" />
-                        Sudah Tuntas
-                      </span>
-
-                      <span className="text-sm font-bold text-[#071426]">
-                        {itjenData.sudahTuntas}
-                      </span>
-                    </div>
-
-                    <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-                      <div
-                        className="h-full rounded-full bg-green-500 transition-all"
-                        style={{
-                          width: `${persentaseTuntas}%`,
-                        }}
-                      />
-                    </div>
+                    <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-sky-700">
+                      Itjen Monitoring
+                    </span>
                   </div>
 
-                  {/* SUDAH TL */}
+                  <h3 className="text-lg font-bold tracking-tight text-[#071426]">
+                    Persentase Saldo
+                  </h3>
 
-                  <div>
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className="flex items-center gap-2 text-sm font-medium text-slate-600">
-                        <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
-                        Sudah TL
-                      </span>
+                  <p className="mt-1 text-sm leading-5 text-slate-500">
+                    Status saldo seluruh rekomendasi Itjen.
+                  </p>
+                </div>
 
-                      <span className="text-sm font-bold text-[#071426]">
-                        {itjenData.sudahTl}
-                      </span>
-                    </div>
-
-                    <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-                      <div
-                        className="h-full rounded-full bg-amber-500 transition-all"
-                        style={{
-                          width: `${persentaseSudahTl}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* BELUM TL */}
-
-                  <div>
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className="flex items-center gap-2 text-sm font-medium text-slate-600">
-                        <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
-                        Belum TL
-                      </span>
-
-                      <span className="text-sm font-bold text-[#071426]">
-                        {itjenData.belumTl}
-                      </span>
-                    </div>
-
-                    <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-                      <div
-                        className="h-full rounded-full bg-red-500 transition-all"
-                        style={{
-                          width: `${persentaseBelumTl}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
+                <div className="rounded-xl border border-sky-100 bg-white/90 p-3 shadow-sm">
+                  <span className="text-lg font-bold text-sky-600">%</span>
                 </div>
               </div>
 
-              {/* RING */}
-
-              <div className="flex flex-col items-center justify-center rounded-2xl bg-slate-50 p-6">
-                <p className="text-sm font-bold text-[#071426]">
-                  Tingkat Penyelesaian
-                </p>
-
-                <p className="mt-1 text-xs text-slate-400">
-                  Rekomendasi Itjen yang sudah tuntas
-                </p>
-
+              {/* LINGKARAN PERSENTASE */}
+              <div className="relative z-10 flex flex-1 flex-col items-center justify-center py-6">
                 <div
-                  className="relative mt-6 flex h-44 w-44 items-center justify-center rounded-full"
+                  className="relative flex h-48 w-48 items-center justify-center rounded-full p-[10px] shadow-lg shadow-sky-900/10"
                   style={{
                     background: `conic-gradient(
-                      #16A34A ${persentaseTuntas}%,
-                      #E2E8F0 ${persentaseTuntas}% 100%
+                      #0284C7 0% ${persentaseSaldoItjen}%,
+                      #E2E8F0 ${persentaseSaldoItjen}% 100%
                     )`,
                   }}
                 >
-                  <div className="flex h-32 w-32 flex-col items-center justify-center rounded-full bg-white">
-                    <span className="text-3xl font-bold text-[#071426]">
-                      {persentaseTuntas}%
+                  <div className="flex h-full w-full flex-col items-center justify-center rounded-full border border-sky-100 bg-white shadow-inner">
+                    <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                      Pencapaian Saldo
                     </span>
 
-                    <span className="mt-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                      Tuntas
-                    </span>
+                    <p className="mt-1 text-4xl font-extrabold tracking-tight text-sky-600">
+                      {loading ? "—" : `${persentaseSaldoItjen}%`}
+                    </p>
+
+                    <div className="mt-2 rounded-full bg-sky-50 px-3 py-1">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-sky-700">
+                        Masuk Saldo
+                      </span>
+                    </div>
                   </div>
                 </div>
 
-                <p className="mt-5 text-sm font-semibold text-slate-700">
-                  {itjenData.sudahTuntas} dari {itjenData.total} rekomendasi
+                <p className="mt-4 text-center text-xs text-slate-500">
+                  Persentase rekomendasi Itjen yang masuk saldo
                 </p>
+              </div>
+
+              {/* JUMLAH SALDO ITJEN */}
+              <div className="relative z-10 grid grid-cols-2 gap-3">
+                <div className="rounded-xl border border-sky-100 bg-white/90 p-4 shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-sky-500" />
+
+                    <p className="text-xs font-semibold text-slate-500">
+                      Masuk Saldo
+                    </p>
+                  </div>
+
+                  <p className="mt-2 text-2xl font-extrabold text-sky-600">
+                    {loading
+                      ? "—"
+                      : itjenSaldoData.masukSaldo.toLocaleString("id-ID")}
+                  </p>
+
+                  <p className="mt-1 text-[10px] text-slate-400">
+                    Rekomendasi masuk saldo
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-orange-100 bg-white/90 p-4 shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-orange-500" />
+
+                    <p className="text-xs font-semibold text-slate-500">
+                      Belum Saldo
+                    </p>
+                  </div>
+
+                  <p className="mt-2 text-2xl font-extrabold text-orange-600">
+                    {loading
+                      ? "—"
+                      : itjenSaldoData.belumSaldo.toLocaleString("id-ID")}
+                  </p>
+
+                  <p className="mt-1 text-[10px] text-slate-400">
+                    Belum masuk saldo
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* KARTU STATUS TINDAK LANJUT ITJEN */}
+            <div className="relative overflow-hidden rounded-2xl border border-white/20 bg-white/95 p-6 shadow-xl transition duration-300 hover:shadow-2xl">
+              {/* HEADER */}
+              <div className="mb-7 flex items-start justify-between gap-3">
+                <div>
+                  <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
+
+                    <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-emerald-700">
+                      ITJEN MONITORING
+                    </span>
+                  </div>
+
+                  <h3 className="text-lg font-bold tracking-tight text-[#071426]">
+                    Status Tindak Lanjut ITJEN
+                  </h3>
+
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    Distribusi status penyelesaian seluruh rekomendasi ITJEN.
+                  </p>
+                </div>
+
+                <div className="shrink-0 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Total ITJEN
+                  </p>
+
+                  <p className="mt-1 text-2xl font-extrabold text-[#071426]">
+                    {loading ? "—" : itjenData.total}
+                  </p>
+                </div>
+              </div>
+
+              {/* STATUS TINDAK LANJUT */}
+              <div className="space-y-6">
+                {[
+                  {
+                    label: "Belum TL",
+                    count: itjenData.belumTl,
+                    percent: persentaseBelumTl,
+                    color: "bg-rose-500",
+                    text: "text-rose-700",
+                  },
+                  {
+                    label: "Sudah TL",
+                    count: itjenData.sudahTl,
+                    percent: persentaseSudahTl,
+                    color: "bg-amber-500",
+                    text: "text-amber-700",
+                  },
+                  {
+                    label: "Sudah Tuntas",
+                    count: itjenData.sudahTuntas,
+                    percent: persentaseTuntas,
+                    color: "bg-emerald-500",
+                    text: "text-emerald-700",
+                  },
+                ].map((item) => (
+                  <div key={item.label}>
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <span className="flex items-center gap-2 text-sm font-medium text-slate-600">
+                        <span
+                          className={`h-2.5 w-2.5 rounded-full ${item.color}`}
+                        />
+                        {item.label}
+                      </span>
+
+                      <span className={`text-sm font-bold ${item.text}`}>
+                        {loading ? "—" : item.count}{" "}
+                        <span className="text-xs">
+                          ({loading ? "—" : `${item.percent}%`})
+                        </span>
+                      </span>
+                    </div>
+
+                    <div className="h-3 overflow-hidden rounded-full bg-slate-100 p-[2px]">
+                      <div
+                        className={`h-full rounded-full ${item.color} transition-all duration-700`}
+                        style={{
+                          width: `${loading ? 0 : item.percent}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <p className="mt-5 border-t border-slate-100 pt-4 text-[10px] text-slate-400">
+                Persentase dihitung dari seluruh rekomendasi ITJEN.
+              </p>
+              {/* RINGKASAN STATISTIK ITJEN */}
+              <div className="mt-7 grid grid-cols-2 gap-3 border-t border-slate-100 pt-5 sm:grid-cols-4">
+                <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Total ITJEN
+                  </p>
+                  <p className="mt-2 text-xl font-extrabold text-[#071426]">
+                    {loading ? "—" : itjenData.total}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Laporan Keuangan
+                  </p>
+                  <p className="mt-2 text-xl font-extrabold text-[#071426]">
+                    {loading ? "—" : itjenData.laporanKeuangan}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Bukan Keuangan
+                  </p>
+                  <p className="mt-2 text-xl font-extrabold text-[#071426]">
+                    {loading ? "—" : itjenData.bukanKeuangan}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Tindak Lanjut Pemeriksaan
+                  </p>
+                  <p className="mt-2 text-xl font-extrabold text-[#071426]">
+                    {loading ? "—" : itjenData.tindakPemeriksaan}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
         </section>
+
         {/* RECENT ACTIVITY */}
         <section className="overflow-hidden rounded-2xl border border-white/10 bg-white/95 shadow-xl">
           <div className="border-b border-slate-100 px-6 py-5">
@@ -1197,6 +1775,149 @@ export default function DashboardPage() {
             </div>
           )}
         </section>
+        {/* MODAL PENGATURAN RUMUS INDEKS CAPAIAN */}
+        {showIndeksRumusModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4">
+            <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-2xl">
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-bold text-[#071426]">
+                    Pengaturan Rumus Indeks Capaian
+                  </h2>
+
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Ubah rumus untuk menghitung Indeks Capaian Tindak Lanjut.
+                    Pengaturan ini terpisah dari rumus Persentase Saldo.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowIndeksRumusModal(false)}
+                  disabled={savingRumus}
+                  className="rounded-lg px-3 py-1 text-xl text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+                  aria-label="Tutup"
+                >
+                  ×
+                </button>
+              </div>
+
+              <label
+                htmlFor="rumus-indeks-capaian"
+                className="mb-2 block text-sm font-semibold text-[#071426]"
+              >
+                Rumus Indeks Capaian
+              </label>
+
+              <textarea
+                id="rumus-indeks-capaian"
+                value={rumusIndeks}
+                onChange={(event) => setRumusIndeks(event.target.value)}
+                rows={4}
+                spellCheck={false}
+                className="w-full rounded-xl border border-slate-300 p-3 text-sm text-[#071426] outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
+                placeholder="Contoh: min(capaian / 0.62, 1.2)"
+              />
+
+              <p className="mt-2 text-xs leading-5 text-slate-500">
+                Variabel yang tersedia meliputi capaian, saldo, tl_belum_tuntas,
+                dan tl_sudah_tuntas. Nilai indeks ditampilkan dalam persentase.
+              </p>
+
+              <div className="mt-6 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowIndeksRumusModal(false)}
+                  disabled={savingRumus}
+                  className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Batal
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => saveRumus("INDEKS")}
+                  disabled={savingRumus}
+                  className="rounded-xl bg-purple-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-purple-700 disabled:opacity-50"
+                >
+                  {savingRumus ? "Menyimpan..." : "Simpan Rumus"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* MODAL PENGATURAN RUMUS PERSENTASE SALDO */}
+        {showSaldoRumusModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4">
+            <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-2xl">
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-bold text-[#071426]">
+                    Pengaturan Rumus Persentase Saldo
+                  </h2>
+
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Rumus ini berlaku khusus untuk Persentase Saldo. Pengubahan
+                    tidak mengubah Capaian maupun Indeks Capaian.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowSaldoRumusModal(false)}
+                  disabled={savingRumus}
+                  className="rounded-lg px-3 py-1 text-xl text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+                  aria-label="Tutup"
+                >
+                  ×
+                </button>
+              </div>
+
+              <label
+                htmlFor="rumus-persentase-saldo"
+                className="mb-2 block text-sm font-semibold text-[#071426]"
+              >
+                Rumus Persentase Saldo
+              </label>
+
+              <textarea
+                id="rumus-persentase-saldo"
+                value={rumusPersentaseSaldo}
+                onChange={(event) =>
+                  setRumusPersentaseSaldo(event.target.value)
+                }
+                rows={4}
+                spellCheck={false}
+                className="w-full rounded-xl border border-slate-300 p-3 text-sm text-[#071426] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                placeholder="Masukkan rumus Persentase Saldo"
+              />
+
+              <p className="mt-2 text-xs leading-5 text-slate-500">
+                Variabel: saldo, tl_belum_tuntas, tl_sudah_tuntas, dan capaian.
+              </p>
+
+              <div className="mt-6 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowSaldoRumusModal(false)}
+                  disabled={savingRumus}
+                  className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Batal
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => saveRumus("SALDO")}
+                  disabled={savingRumus}
+                  className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {savingRumus ? "Menyimpan..." : "Simpan Rumus"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {/* FOOTER */}
         <div className="py-8 text-center">
           <p className="text-xs text-white/50">

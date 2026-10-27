@@ -56,10 +56,31 @@ export default function ItjenPage() {
     try {
       setLoading(true);
       setError("");
+      const params = new URLSearchParams(window.location.search);
 
+      const yearFromUrl = params.get("year");
+      const yearFromStorage = localStorage.getItem("apfMonitoringYear");
+
+      const isValidYear = (value: string | null) =>
+        !!value &&
+        /^\d{4}$/.test(value) &&
+        Number(value) >= 2026 &&
+        Number(value) <= 9998;
+
+      const year = isValidYear(yearFromUrl)
+        ? yearFromUrl!
+        : isValidYear(yearFromStorage)
+        ? yearFromStorage!
+        : String(new Date().getFullYear());
+
+      const yearQuery = `?year=${year}`;
       const [recommendationRes, summaryRes] = await Promise.all([
-        fetch("/api/recommendations", { cache: "no-store" }),
-        fetch("/api/dashboard/summary", { cache: "no-store" }),
+        fetch(`/api/recommendations${yearQuery}`, {
+          cache: "no-store",
+        }),
+        fetch(`/api/dashboard/summary${yearQuery}`, {
+          cache: "no-store",
+        }),
       ]);
 
       if (!recommendationRes.ok || !summaryRes.ok) {
@@ -73,33 +94,38 @@ export default function ItjenPage() {
 
       const itjenData: Recommendation[] = (
         recommendationJson.data || []
-      ).filter((item: Recommendation) => item.source === "ITJEN");
+      ).filter(
+        (item: Recommendation) =>
+          String(item.source ?? "")
+            .trim()
+            .toUpperCase() === "ITJEN"
+      );
 
       setData(itjenData);
-      if (summaryJson?.data?.itjen) {
+
+      // Hitung berdasarkan jumlah baris rekomendasi,
+      // bukan menjumlahkan recommendation_count.
+      setData(itjenData);
+
+      // Gunakan ringkasan API agar rekomendasi yang berulang
+      // tidak dihitung kembali pada kartu statistik.
+      const itjenSummary = summaryJson?.data?.itjen;
+
+      if (itjenSummary) {
         setSummary({
-          total: Number(summaryJson.data.itjen.total || 0),
-          selesai: Number(summaryJson.data.itjen.sudahTuntas || 0),
-          proses: Number(summaryJson.data.itjen.sudahTl || 0),
-          belum: Number(summaryJson.data.itjen.belumTl || 0),
+          total: Number(itjenSummary.total ?? 0),
+          selesai: Number(itjenSummary.sudahTuntas ?? 0),
+          proses: Number(itjenSummary.sudahTl ?? 0),
+          belum: Number(itjenSummary.belumTl ?? 0),
         });
       } else {
-        const countStatus = (status: string) =>
-          itjenData
-            .filter((item) => item.follow_up_status === status)
-            .reduce(
-              (sum, item) => sum + Number(item.recommendation_count || 0),
-              0
-            );
+        console.error("Ringkasan ITJEN tidak tersedia:", summaryJson);
 
         setSummary({
-          total: itjenData.reduce(
-            (sum, item) => sum + Number(item.recommendation_count || 0),
-            0
-          ),
-          selesai: countStatus("SUDAH_TUNTAS"),
-          proses: countStatus("SUDAH_TL"),
-          belum: countStatus("BELUM_TL"),
+          total: 0,
+          selesai: 0,
+          proses: 0,
+          belum: 0,
         });
       }
 
@@ -546,13 +572,33 @@ export default function ItjenPage() {
             <div className="mt-8 space-y-6">
               {categories.length > 0 ? (
                 categories.map((category) => {
-                  const categoryTotal = data
-                    .filter((item) => item.category === category)
-                    .reduce(
-                      (sum, item) =>
-                        sum + Number(item.recommendation_count || 0),
-                      0
-                    );
+                  const normalizeText = (value: string | null | undefined) =>
+                    (value ?? "").trim().toUpperCase();
+
+                  const categoryTotal = new Set(
+                    data
+                      .filter(
+                        (item) =>
+                          normalizeText(item.category) ===
+                          normalizeText(category)
+                      )
+                      .map((item) => {
+                        const lha = normalizeText(item.lha_number);
+                        const nomor = item.recommendation_number;
+
+                        const nomorRekomendasi =
+                          nomor == null || String(nomor).trim() === ""
+                            ? `ID-REC-${item.id}`
+                            : String(nomor).trim();
+
+                        return [
+                          normalizeText(item.source),
+                          normalizeText(item.category),
+                          lha || `ID-LHA-${item.id}`,
+                          nomorRekomendasi,
+                        ].join("::");
+                      })
+                  ).size;
 
                   const categoryPercentage =
                     summary.total > 0

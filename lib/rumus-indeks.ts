@@ -5,6 +5,7 @@ const math = create(all);
 const VARIABEL_DIIZINKAN = [
   "capaian",
   "saldo",
+  "belum_tl",
   "tl_belum_tuntas",
   "tl_sudah_tuntas",
 ];

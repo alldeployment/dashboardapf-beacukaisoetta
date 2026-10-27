@@ -93,6 +93,34 @@ export async function GET(request: Request) {
 
     const bpkResult = await pool.query(
       `
+      WITH bpk_unique AS (
+        SELECT DISTINCT ON (
+          source,
+          category,
+          COALESCE(NULLIF(TRIM(lha_number), ''), 'ID-' || id::text),
+          COALESCE(recommendation_number::text, 'ID-' || id::text),
+          tahun_periode
+        )
+          id,
+          source,
+          category,
+          saldo_status,
+          follow_up_status,
+          lha_number,
+          recommendation_number,
+          tahun_periode
+        FROM public.recommendations
+        WHERE UPPER(TRIM(source)) = 'BPK'
+          AND tahun_periode = $1
+        ORDER BY
+          source,
+          category,
+          COALESCE(NULLIF(TRIM(lha_number), ''), 'ID-' || id::text),
+          COALESCE(recommendation_number::text, 'ID-' || id::text),
+          tahun_periode,
+          updated_at DESC NULLS LAST,
+          id DESC
+      )
       SELECT
         COUNT(*)::int AS total,
 
@@ -105,11 +133,17 @@ export async function GET(request: Request) {
         )::int AS belum_saldo,
 
         COUNT(*) FILTER (
-          WHERE category = 'Laporan Keuangan'
+          WHERE UPPER(TRIM(category)) IN (
+            'KEUANGAN',
+            'LAPORAN KEUANGAN'
+          )
         )::int AS keuangan,
 
         COUNT(*) FILTER (
-          WHERE category = 'Bukan Keuangan'
+          WHERE UPPER(TRIM(category)) IN (
+            'BUKAN_KEUANGAN',
+            'BUKAN KEUANGAN'
+          )
         )::int AS bukan_keuangan,
 
         COUNT(*) FILTER (
@@ -117,16 +151,14 @@ export async function GET(request: Request) {
         )::int AS belum_tl,
 
         COUNT(*) FILTER (
-          WHERE follow_up_status = 'SUDAH_TL'
+          WHERE follow_up_status IN ('SUDAH_TL', 'BELUM_TUNTAS')
         )::int AS tl_belum_tuntas,
 
         COUNT(*) FILTER (
           WHERE follow_up_status = 'SUDAH_TUNTAS'
         )::int AS tl_sudah_tuntas
 
-        FROM public.recommendations
-      WHERE source = 'BPK'
-        AND ${periodFilter}
+      FROM bpk_unique
       `,
       [year]
     );
@@ -141,46 +173,52 @@ export async function GET(request: Request) {
       `
       WITH itjen_unique AS (
         SELECT DISTINCT ON (
-          source,
-          category,
-          lha_number,
-          recommendation_number,
+          UPPER(TRIM(source)),
+          COALESCE(
+            NULLIF(UPPER(TRIM(lha_number)), ''),
+            'ID-LHA-' || id::text
+          ),
+          COALESCE(
+            NULLIF(TRIM(recommendation_number::text), ''),
+            'ID-REC-' || id::text
+          ),
           tahun_periode
         )
           id,
-          source,
-          category,
-          lha_number,
-          recommendation_number,
-          tahun_periode,
-          follow_up_status
+          follow_up_status,
+          tahun_periode
         FROM public.recommendations
-        WHERE source = 'ITJEN'
+        WHERE UPPER(TRIM(source)) = 'ITJEN'
           AND tahun_periode = $1
         ORDER BY
-          source,
-          category,
-          lha_number,
-          recommendation_number,
+          UPPER(TRIM(source)),
+          COALESCE(
+            NULLIF(UPPER(TRIM(lha_number)), ''),
+            'ID-LHA-' || id::text
+          ),
+          COALESCE(
+            NULLIF(TRIM(recommendation_number::text), ''),
+            'ID-REC-' || id::text
+          ),
           tahun_periode,
           updated_at DESC NULLS LAST,
           id DESC
       )
       SELECT
         COUNT(*)::int AS total,
-
+    
         COUNT(*) FILTER (
           WHERE follow_up_status = 'BELUM_TL'
         )::int AS belum_tl,
-
+    
         COUNT(*) FILTER (
           WHERE follow_up_status IN ('SUDAH_TL', 'BELUM_TUNTAS')
         )::int AS tl_belum_tuntas,
-
+    
         COUNT(*) FILTER (
           WHERE follow_up_status = 'SUDAH_TUNTAS'
         )::int AS tl_sudah_tuntas
-
+    
       FROM itjen_unique
       `,
       [year]

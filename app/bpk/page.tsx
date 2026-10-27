@@ -86,28 +86,6 @@ export default function BpkPage() {
 
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Recommendation | null>(null);
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const urlYear = params.get("year");
-    const savedYear = localStorage.getItem("apfMonitoringYear");
-
-    const validYear = (value: string | null) => {
-      if (!value || !/^\d{4}$/.test(value)) return false;
-
-      const year = Number(value);
-      return year >= 2026 && year <= 9998;
-    };
-
-    const yearToUse = validYear(urlYear)
-      ? urlYear!
-      : validYear(savedYear)
-      ? savedYear!
-      : "2026";
-
-    setSelectedYear(Number(yearToUse));
-    localStorage.setItem("apfMonitoringYear", yearToUse);
-    setYearReady(true);
-  }, []);
 
   const loadData = useCallback(async () => {
     try {
@@ -131,7 +109,10 @@ export default function BpkPage() {
       const summaryJson = await summaryRes.json();
 
       const bpkData = (recommendationJson.data || []).filter(
-        (item: Recommendation) => item.source === "BPK"
+        (item: Recommendation) =>
+          String(item.source ?? "")
+            .trim()
+            .toUpperCase() === "BPK"
       );
 
       setData(bpkData);
