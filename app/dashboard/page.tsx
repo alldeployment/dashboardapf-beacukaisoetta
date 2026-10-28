@@ -42,6 +42,20 @@ type Recommendation = {
   follow_up_status: string;
   saldo_status: string;
   description: string | null;
+  recommendation_number?: number | null;
+  temuan?: string | null;
+  recommendation?: string | null;
+  keterangan_1?: string | null;
+  keterangan_2?: string | null;
+  keterangan_3?: string | null;
+  no_temuan?: string | null;
+  judul?: string | null;
+  rencana_aksi?: string | null;
+  keterangan_bukti_dukung?: string | null;
+  waktu_pelaksanaan?: string | null;
+  uic?: string | null;
+  tindak_lanjut?: string | null;
+  capaian?: number | null;
 };
 
 export default function DashboardPage() {
@@ -84,6 +98,18 @@ export default function DashboardPage() {
 
   const [showCapaianRumusModal, setShowCapaianRumusModal] = useState(false);
   const [showSaldoRumusModal, setShowSaldoRumusModal] = useState(false);
+  const [saldoFilter, setSaldoFilter] = useState<
+    "MASUK_SALDO" | "BELUM_SALDO" | null
+  >(null);
+
+  const [selectedSaldoRecommendation, setSelectedSaldoRecommendation] =
+    useState<Recommendation | null>(null);
+  const [editingSaldoRecommendation, setEditingSaldoRecommendation] =
+    useState<Recommendation | null>(null);
+
+  const [savingSaldoEdit, setSavingSaldoEdit] = useState(false);
+
+  const [deletingSaldoId, setDeletingSaldoId] = useState<number | null>(null);
 
   const [savingRumus, setSavingRumus] = useState(false);
 
@@ -345,10 +371,7 @@ export default function DashboardPage() {
   const masukSaldoGlobal = safeNumber(summary?.masukSaldo);
   const belumSaldoGlobal = safeNumber(summary?.belumSaldo);
 
-  const persentaseSaldoGlobal =
-    capaianData?.persentase_saldo !== undefined
-      ? safeNumber(capaianData.persentase_saldo) * 100
-      : safeNumber(summary?.persentaseSaldo);
+  const persentaseSaldoGlobal = safePercentage(masukSaldoGlobal, total);
 
   const capaianOtomatis = safeNumber(
     capaianData?.capaian_otomatis ?? summary?.capaian
@@ -588,7 +611,121 @@ export default function DashboardPage() {
     })
     .sort((a, b) => b.sortDate - a.sortDate)
     .slice(0, 5);
+  const saldoRecommendations = recommendations.filter((item) => {
+    const status = (item.saldo_status ?? "").trim().toUpperCase();
 
+    return saldoFilter !== null && status === saldoFilter;
+  });
+  function updateSaldoEdit<K extends keyof Recommendation>(
+    key: K,
+    value: Recommendation[K]
+  ) {
+    setEditingSaldoRecommendation((previous) =>
+      previous ? { ...previous, [key]: value } : previous
+    );
+  }
+
+  async function saveSaldoEdit() {
+    const item = editingSaldoRecommendation;
+    if (!item) return;
+
+    if (
+      !item.source.trim() ||
+      !item.category.trim() ||
+      !item.lha_number.trim() ||
+      !item.lha_date ||
+      !item.follow_up_status ||
+      !item.saldo_status
+    ) {
+      alert("Sumber, kategori, nomor LHA, tanggal, dan status wajib diisi.");
+      return;
+    }
+
+    try {
+      setSavingSaldoEdit(true);
+
+      const response = await fetch("/api/recommendations", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: item.id,
+          source: item.source,
+          category: item.category,
+          lhaNumber: item.lha_number,
+          lhaDate: item.lha_date.slice(0, 10),
+          recommendationNumber: item.recommendation_number ?? null,
+          temuan: item.temuan ?? "",
+          recommendation: item.recommendation ?? "",
+          description: item.description ?? "",
+          keterangan_1: item.keterangan_1 ?? "",
+          keterangan_2: item.keterangan_2 ?? "",
+          keterangan_3: item.keterangan_3 ?? "",
+          no_temuan: item.no_temuan ?? "",
+          judul: item.judul ?? "",
+          rencana_aksi: item.rencana_aksi ?? "",
+          keterangan_bukti_dukung: item.keterangan_bukti_dukung ?? "",
+          waktu_pelaksanaan: item.waktu_pelaksanaan || null,
+          uic: item.uic ?? "",
+          tindak_lanjut: item.tindak_lanjut ?? "",
+          followUpStatus: item.follow_up_status,
+          saldoStatus: item.saldo_status,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || result?.ok === false) {
+        throw new Error(result?.message || "Gagal mengubah rekomendasi.");
+      }
+
+      setEditingSaldoRecommendation(null);
+      setSelectedSaldoRecommendation(null);
+
+      await loadDashboard(selectedYear);
+      alert("Rekomendasi berhasil diperbarui.");
+    } catch (err) {
+      console.error("EDIT REKOMENDASI:", err);
+      alert(err instanceof Error ? err.message : "Gagal mengubah rekomendasi.");
+    } finally {
+      setSavingSaldoEdit(false);
+    }
+  }
+
+  async function deleteSaldoRecommendation(item: Recommendation) {
+    const confirmed = window.confirm(
+      `Yakin menghapus rekomendasi #${
+        item.recommendation_number ?? item.id
+      } dari LHA ${item.lha_number || "-"}?`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setDeletingSaldoId(item.id);
+
+      const response = await fetch(
+        `/api/recommendations?id=${encodeURIComponent(String(item.id))}`,
+        { method: "DELETE" }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || result?.ok === false) {
+        throw new Error(result?.message || "Gagal menghapus rekomendasi.");
+      }
+
+      setSelectedSaldoRecommendation(null);
+      await loadDashboard(selectedYear);
+      alert("Rekomendasi berhasil dihapus.");
+    } catch (err) {
+      console.error("HAPUS REKOMENDASI:", err);
+      alert(
+        err instanceof Error ? err.message : "Gagal menghapus rekomendasi."
+      );
+    } finally {
+      setDeletingSaldoId(null);
+    }
+  }
   /*
   ============================================================
   RENDER
@@ -604,7 +741,7 @@ export default function DashboardPage() {
     >
       <div className="fixed inset-0 -z-0 bg-[#071426]/80" />
 
-      <div className="relative z-10 min-h-screen bg-white/5 px-6 py-8 lg:px-8">
+      <div className="relative min-h-screen bg-white/5 px-6 py-8 lg:px-8">
         {/* HEADER */}
         <section className="mb-8">
           <div className="flex flex-col justify-between gap-5 xl:flex-row xl:items-end">
@@ -979,7 +1116,22 @@ export default function DashboardPage() {
           {/* GRID EMPAT KARTU */}
           <div className="grid gap-4 md:grid-cols-3">
             {/* MASUK SALDO */}
-            <div className="flex min-h-[155px] flex-col justify-between rounded-2xl border border-green-200/70 bg-white p-5 shadow-lg transition duration-200 hover:-translate-y-1 hover:shadow-2xl">
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                setSaldoFilter("MASUK_SALDO");
+                setSelectedSaldoRecommendation(null);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setSaldoFilter("MASUK_SALDO");
+                  setSelectedSaldoRecommendation(null);
+                }
+              }}
+              className="flex min-h-[155px] cursor-pointer flex-col justify-between rounded-2xl border border-green-200/70 bg-white p-5 text-left shadow-lg transition duration-200 hover:-translate-y-1 hover:shadow-2xl focus:outline-none focus:ring-2 focus:ring-green-500"
+            >
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs font-bold uppercase tracking-wider text-green-700">
                   Masuk Saldo
@@ -1002,7 +1154,22 @@ export default function DashboardPage() {
             </div>
 
             {/* BELUM MASUK SALDO */}
-            <div className="flex min-h-[155px] flex-col justify-between rounded-2xl border border-orange-200/70 bg-white p-5 shadow-lg transition duration-200 hover:-translate-y-1 hover:shadow-2xl">
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                setSaldoFilter("BELUM_SALDO");
+                setSelectedSaldoRecommendation(null);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setSaldoFilter("BELUM_SALDO");
+                  setSelectedSaldoRecommendation(null);
+                }
+              }}
+              className="flex min-h-[155px] cursor-pointer flex-col justify-between rounded-2xl border border-orange-200/70 bg-white p-5 text-left shadow-lg transition duration-200 hover:-translate-y-1 hover:shadow-2xl focus:outline-none focus:ring-2 focus:ring-orange-500"
+            >
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs font-bold uppercase tracking-wider text-orange-700">
                   Belum Masuk Saldo
@@ -1775,6 +1942,702 @@ export default function DashboardPage() {
             </div>
           )}
         </section>
+        {/* MODAL DAFTAR REKOMENDASI BERDASARKAN STATUS SALDO */}
+        {saldoFilter && (
+          <div
+            className="fixed inset-0 z-[9999] flex items-center justify-center overflow-y-auto bg-slate-950/70 p-3 sm:p-4"
+            onClick={() => {
+              setSaldoFilter(null);
+              setSelectedSaldoRecommendation(null);
+            }}
+          >
+            <div
+              className="my-auto max-h-[calc(100dvh-2rem)] w-full max-w-6xl overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl sm:p-6"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-[#D4A72C]">
+                    {selectedSaldoRecommendation
+                      ? `Detail Rekomendasi • Periode ${selectedYear}`
+                      : `Status Saldo • Periode ${selectedYear}`}
+                  </p>
+
+                  <h2 className="mt-1 text-xl font-bold text-[#071426]">
+                    {selectedSaldoRecommendation
+                      ? "Detail Rekomendasi"
+                      : saldoFilter === "MASUK_SALDO"
+                      ? "Daftar Rekomendasi Masuk Saldo"
+                      : "Daftar Rekomendasi Belum Masuk Saldo"}
+                  </h2>
+
+                  <p className="mt-1 text-sm text-slate-500">
+                    {selectedSaldoRecommendation
+                      ? `${selectedSaldoRecommendation.source} • ID Data ${selectedSaldoRecommendation.id}`
+                      : `Total ${saldoRecommendations.length} rekomendasi ditemukan.`}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSaldoFilter(null);
+                    setSelectedSaldoRecommendation(null);
+                  }}
+                  className="rounded-lg px-3 py-1 text-2xl text-slate-500 hover:bg-slate-100"
+                  aria-label="Tutup daftar saldo"
+                >
+                  ×
+                </button>
+              </div>
+
+              {selectedSaldoRecommendation ? (
+                <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                  {/* HEADER DETAIL */}
+                  <div className="border-b border-slate-200 bg-gradient-to-r from-[#071426] to-[#17365D] p-6 text-white">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#F0C85A]">
+                          Detail Rekomendasi
+                        </p>
+
+                        <h3 className="mt-2 text-2xl font-bold">
+                          {selectedSaldoRecommendation.lha_number ||
+                            "Tanpa Nomor LHA"}
+                        </h3>
+
+                        <p className="mt-2 text-sm text-white/70">
+                          {selectedSaldoRecommendation.source} •{" "}
+                          {selectedSaldoRecommendation.category} • ID{" "}
+                          {selectedSaldoRecommendation.id}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSaldoRecommendation(null)}
+                        className="rounded-lg border border-white/20 px-3 py-2 text-sm font-semibold text-white hover:bg-white/10"
+                      >
+                        ← Kembali
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6 p-5 sm:p-6">
+                    {/* INFORMASI LHA / LHP */}
+                    <section>
+                      <h4 className="mb-4 border-b border-slate-200 pb-2 text-sm font-bold uppercase tracking-wider text-[#071426]">
+                        Informasi LHA / LHP
+                      </h4>
+
+                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                        {[
+                          {
+                            label: "ID Data",
+                            value: String(selectedSaldoRecommendation.id),
+                          },
+                          {
+                            label: "Sumber Pemeriksaan",
+                            value: selectedSaldoRecommendation.source,
+                          },
+                          {
+                            label: "Kategori",
+                            value: selectedSaldoRecommendation.category,
+                          },
+                          {
+                            label: "Nomor LHA / LHP",
+                            value: selectedSaldoRecommendation.lha_number,
+                          },
+                          {
+                            label: "Tanggal LHA / LHP",
+                            value: formatDate(
+                              selectedSaldoRecommendation.lha_date
+                            ),
+                          },
+                          {
+                            label: "Nomor Rekomendasi",
+                            value:
+                              selectedSaldoRecommendation.recommendation_number ==
+                              null
+                                ? "-"
+                                : String(
+                                    selectedSaldoRecommendation.recommendation_number
+                                  ),
+                          },
+                        ].map((field) => (
+                          <div
+                            key={field.label}
+                            className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                          >
+                            <p className="text-xs font-medium text-slate-500">
+                              {field.label}
+                            </p>
+
+                            <p className="mt-2 break-words text-sm font-semibold text-[#071426]">
+                              {field.value || "-"}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+
+                    {/* STATUS REKOMENDASI */}
+                    <section>
+                      <h4 className="mb-4 border-b border-slate-200 pb-2 text-sm font-bold uppercase tracking-wider text-[#071426]">
+                        Status Rekomendasi
+                      </h4>
+
+                      <div className="grid gap-4 sm:grid-cols-3">
+                        <div className="rounded-xl border border-slate-200 p-4">
+                          <p className="text-xs text-slate-500">Status Saldo</p>
+
+                          <span
+                            className={`mt-2 inline-flex rounded-lg border px-3 py-1.5 text-xs font-bold ${getSaldoStatusStyle(
+                              selectedSaldoRecommendation.saldo_status
+                            )}`}
+                          >
+                            {selectedSaldoRecommendation.saldo_status ===
+                            "MASUK_SALDO"
+                              ? "Masuk Saldo"
+                              : selectedSaldoRecommendation.saldo_status ===
+                                "BELUM_SALDO"
+                              ? "Belum Masuk Saldo"
+                              : selectedSaldoRecommendation.saldo_status || "-"}
+                          </span>
+                        </div>
+
+                        <div className="rounded-xl border border-slate-200 p-4">
+                          <p className="text-xs text-slate-500">
+                            Status Tindak Lanjut
+                          </p>
+
+                          <p className="mt-2 text-sm font-bold text-[#071426]">
+                            {getStatusLabel(
+                              selectedSaldoRecommendation.follow_up_status
+                            )}
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl border border-slate-200 p-4">
+                          <p className="text-xs text-slate-500">
+                            Capaian Rekomendasi
+                          </p>
+
+                          <p className="mt-2 text-2xl font-extrabold text-blue-700">
+                            {safeNumber(selectedSaldoRecommendation.capaian)}%
+                          </p>
+
+                          <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+                            <div
+                              className="h-full rounded-full bg-blue-600 transition-all"
+                              style={{
+                                width: `${Math.min(
+                                  100,
+                                  Math.max(
+                                    0,
+                                    safeNumber(
+                                      selectedSaldoRecommendation.capaian
+                                    )
+                                  )
+                                )}%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+
+                    {/* DATA TEMUAN DAN REKOMENDASI */}
+                    <section>
+                      <h4 className="mb-4 border-b border-slate-200 pb-2 text-sm font-bold uppercase tracking-wider text-[#071426]">
+                        Data Temuan dan Rekomendasi
+                      </h4>
+
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        {[
+                          {
+                            label: "No Temuan",
+                            value: selectedSaldoRecommendation.no_temuan,
+                          },
+                          {
+                            label: "Judul",
+                            value: selectedSaldoRecommendation.judul,
+                          },
+                          {
+                            label: "Temuan",
+                            value: selectedSaldoRecommendation.temuan,
+                          },
+                          {
+                            label: "Rekomendasi Pemeriksaan",
+                            value: selectedSaldoRecommendation.recommendation,
+                          },
+                          {
+                            label: "Uraian / Keterangan",
+                            value: selectedSaldoRecommendation.description,
+                          },
+                          {
+                            label: "Keterangan 1",
+                            value: selectedSaldoRecommendation.keterangan_1,
+                          },
+                          {
+                            label: "Keterangan 2",
+                            value: selectedSaldoRecommendation.keterangan_2,
+                          },
+                          {
+                            label: "Keterangan 3",
+                            value: selectedSaldoRecommendation.keterangan_3,
+                          },
+                        ].map((field) => (
+                          <div
+                            key={field.label}
+                            className={`min-w-0 rounded-xl border border-slate-200 bg-white p-4 ${
+                              [
+                                "Temuan",
+                                "Rekomendasi Pemeriksaan",
+                                "Uraian / Keterangan",
+                                "Keterangan 1",
+                                "Keterangan 2",
+                                "Keterangan 3",
+                              ].includes(field.label)
+                                ? "sm:col-span-2"
+                                : ""
+                            }`}
+                          >
+                            <p className="mb-2 text-xs font-bold text-slate-500">
+                              {field.label}
+                            </p>
+
+                            <p className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
+                              {field.value?.trim() || "-"}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+
+                    {/* RENCANA AKSI DAN TINDAK LANJUT */}
+                    <section>
+                      <h4 className="mb-4 border-b border-slate-200 pb-2 text-sm font-bold uppercase tracking-wider text-[#071426]">
+                        Rencana Aksi dan Tindak Lanjut
+                      </h4>
+
+                      <div className="space-y-4">
+                        {[
+                          {
+                            label: "Rencana Aksi",
+                            value: selectedSaldoRecommendation.rencana_aksi,
+                          },
+                          {
+                            label: "Keterangan / Bukti Dukung",
+                            value:
+                              selectedSaldoRecommendation.keterangan_bukti_dukung,
+                          },
+                          {
+                            label: "Tindak Lanjut",
+                            value: selectedSaldoRecommendation.tindak_lanjut,
+                          },
+                        ].map((field) => (
+                          <div
+                            key={field.label}
+                            className="rounded-xl border border-slate-200 p-4"
+                          >
+                            <p className="mb-2 text-xs font-bold text-slate-500">
+                              {field.label}
+                            </p>
+
+                            <p className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
+                              {field.value?.trim() || "-"}
+                            </p>
+                          </div>
+                        ))}
+
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <div className="rounded-xl border border-slate-200 p-4">
+                            <p className="text-xs font-bold text-slate-500">
+                              Waktu Pelaksanaan
+                            </p>
+
+                            <p className="mt-2 text-sm font-semibold text-slate-700">
+                              {selectedSaldoRecommendation.waktu_pelaksanaan
+                                ? formatDate(
+                                    selectedSaldoRecommendation.waktu_pelaksanaan
+                                  )
+                                : "-"}
+                            </p>
+                          </div>
+
+                          <div className="rounded-xl border border-slate-200 p-4">
+                            <p className="text-xs font-bold text-slate-500">
+                              UIC / Penanggung Jawab
+                            </p>
+
+                            <p className="mt-2 whitespace-pre-wrap break-words text-sm font-semibold text-slate-700">
+                              {selectedSaldoRecommendation.uic?.trim() || "-"}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+
+                    {/* TOMBOL AKSI */}
+                    <div className="flex flex-wrap justify-end gap-3 border-t border-slate-200 pt-5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingSaldoRecommendation({
+                            ...selectedSaldoRecommendation,
+                          });
+                          setSelectedSaldoRecommendation(null);
+                          setSaldoFilter(null);
+                        }}
+                        className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-700"
+                      >
+                        Edit Data
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={
+                          deletingSaldoId === selectedSaldoRecommendation.id
+                        }
+                        onClick={() =>
+                          void deleteSaldoRecommendation(
+                            selectedSaldoRecommendation
+                          )
+                        }
+                        className="rounded-xl bg-red-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-50"
+                      >
+                        {deletingSaldoId === selectedSaldoRecommendation.id
+                          ? "Menghapus..."
+                          : "Hapus Data"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : loading ? (
+                <div className="py-12 text-center text-sm text-slate-500">
+                  Memuat data rekomendasi...
+                </div>
+              ) : saldoRecommendations.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-300 py-12 text-center">
+                  <p className="font-semibold text-slate-700">
+                    Belum ada rekomendasi untuk status ini.
+                  </p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Coba periksa status saldo atau tahun periode yang dipilih.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <table className="w-full min-w-[900px] text-left">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        {[
+                          "No",
+                          "Sumber",
+                          "Nomor LHA / LHP",
+                          "Tanggal",
+                          "Kategori",
+                          "Status Saldo",
+                          "Aksi",
+                        ].map((heading) => (
+                          <th
+                            key={heading}
+                            className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500"
+                          >
+                            {heading}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {saldoRecommendations.map((item, index) => (
+                        <tr
+                          key={item.id}
+                          className="border-t border-slate-100 hover:bg-slate-50"
+                        >
+                          <td className="px-4 py-3 text-sm text-slate-500">
+                            {index + 1}
+                          </td>
+
+                          <td className="px-4 py-3 text-sm font-semibold text-[#071426]">
+                            {item.source || "-"}
+                          </td>
+
+                          <td className="px-4 py-3 text-sm font-semibold text-[#071426]">
+                            {item.lha_number || "-"}
+                          </td>
+
+                          <td className="px-4 py-3 text-sm text-slate-600">
+                            {formatDate(item.lha_date)}
+                          </td>
+
+                          <td className="px-4 py-3 text-sm text-slate-600">
+                            {item.category || "-"}
+                          </td>
+
+                          <td className="px-4 py-3">
+                            <span
+                              className={`inline-flex rounded-lg border px-3 py-1.5 text-xs font-semibold ${getSaldoStatusStyle(
+                                item.saldo_status
+                              )}`}
+                            >
+                              {item.saldo_status === "MASUK_SALDO"
+                                ? "Masuk Saldo"
+                                : item.saldo_status === "BELUM_SALDO"
+                                ? "Belum Saldo"
+                                : item.saldo_status || "-"}
+                            </span>
+                          </td>
+
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSelectedSaldoRecommendation(item)
+                                }
+                                className="rounded-lg bg-[#071426] px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700"
+                              >
+                                Detail
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingSaldoRecommendation({ ...item });
+                                  setSelectedSaldoRecommendation(null);
+                                  setSaldoFilter(null);
+                                }}
+                                className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+                              >
+                                Edit
+                              </button>
+
+                              <button
+                                type="button"
+                                disabled={deletingSaldoId === item.id}
+                                onClick={() =>
+                                  void deleteSaldoRecommendation(item)
+                                }
+                                className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                              >
+                                {deletingSaldoId === item.id
+                                  ? "Menghapus..."
+                                  : "Hapus"}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        {/* MODAL EDIT REKOMENDASI */}
+        {editingSaldoRecommendation && (
+          <div
+            className="fixed inset-0 z-[10000] grid h-dvh w-screen place-items-center overflow-y-auto bg-slate-950/70 p-4"
+            onClick={() => {
+              if (!savingSaldoEdit) setEditingSaldoRecommendation(null);
+            }}
+          >
+            <div
+              className="my-auto max-h-[calc(100dvh-2rem)] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl sm:p-6"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-6 flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-blue-600">
+                    Edit Rekomendasi
+                  </p>
+                  <h2 className="mt-1 text-xl font-bold text-[#071426]">
+                    Ubah Data Rekomendasi
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    ID {editingSaldoRecommendation.id} · LHA{" "}
+                    {editingSaldoRecommendation.lha_number}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={savingSaldoEdit}
+                  onClick={() => setEditingSaldoRecommendation(null)}
+                  className="rounded-lg px-3 py-1 text-2xl text-slate-500 hover:bg-slate-100"
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">
+                    Sumber
+                  </label>
+                  <select
+                    value={editingSaldoRecommendation.source}
+                    onChange={(e) => updateSaldoEdit("source", e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-800"
+                  >
+                    <option value="BPK">BPK</option>
+                    <option value="ITJEN">ITJEN</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">
+                    Kategori
+                  </label>
+                  <input
+                    value={editingSaldoRecommendation.category}
+                    onChange={(e) =>
+                      updateSaldoEdit("category", e.target.value)
+                    }
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-800"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">
+                    Nomor LHA / LHP
+                  </label>
+                  <input
+                    value={editingSaldoRecommendation.lha_number}
+                    onChange={(e) =>
+                      updateSaldoEdit("lha_number", e.target.value)
+                    }
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-800"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">
+                    Tanggal LHA / LHP
+                  </label>
+                  <input
+                    type="date"
+                    value={
+                      editingSaldoRecommendation.lha_date?.slice(0, 10) ?? ""
+                    }
+                    onChange={(e) =>
+                      updateSaldoEdit("lha_date", e.target.value)
+                    }
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-800"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">
+                    Nomor Rekomendasi
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={
+                      editingSaldoRecommendation.recommendation_number ?? ""
+                    }
+                    onChange={(e) =>
+                      updateSaldoEdit(
+                        "recommendation_number",
+                        e.target.value === "" ? null : Number(e.target.value)
+                      )
+                    }
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-800"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">
+                    Status Tindak Lanjut
+                  </label>
+                  <select
+                    value={editingSaldoRecommendation.follow_up_status}
+                    onChange={(e) =>
+                      updateSaldoEdit("follow_up_status", e.target.value)
+                    }
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-800"
+                  >
+                    <option value="BELUM_TL">Belum TL</option>
+                    <option value="SUDAH_TL">Sudah TL</option>
+                    <option value="SUDAH_TUNTAS">Sudah Tuntas</option>
+                  </select>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">
+                    Status Saldo
+                  </label>
+                  <select
+                    value={editingSaldoRecommendation.saldo_status}
+                    onChange={(e) =>
+                      updateSaldoEdit("saldo_status", e.target.value)
+                    }
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-800"
+                  >
+                    <option value="MASUK_SALDO">Masuk Saldo</option>
+                    <option value="BELUM_SALDO">Belum Masuk Saldo</option>
+                    <option value="TIDAK_RELEVAN">Tidak Relevan</option>
+                  </select>
+                </div>
+
+                {(
+                  [
+                    ["temuan", "Temuan"],
+                    ["recommendation", "Rekomendasi"],
+                    ["description", "Uraian / Keterangan"],
+                    ["keterangan_1", "Keterangan 1"],
+                    ["keterangan_2", "Keterangan 2"],
+                    ["keterangan_3", "Keterangan 3"],
+                    ["no_temuan", "Nomor Temuan"],
+                    ["judul", "Judul"],
+                    ["rencana_aksi", "Rencana Aksi"],
+                    ["keterangan_bukti_dukung", "Bukti Dukung"],
+                    ["waktu_pelaksanaan", "Waktu Pelaksanaan"],
+                    ["uic", "UIC / Penanggung Jawab"],
+                    ["tindak_lanjut", "Tindak Lanjut"],
+                  ] as const
+                ).map(([field, label]) => (
+                  <div key={field} className="sm:col-span-2">
+                    <label className="mb-1 block text-sm font-semibold text-slate-700">
+                      {label}
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={editingSaldoRecommendation[field] ?? ""}
+                      onChange={(e) => updateSaldoEdit(field, e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-800"
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-6 flex justify-end gap-3 border-t border-slate-100 pt-5">
+                <button
+                  type="button"
+                  disabled={savingSaldoEdit}
+                  onClick={() => setEditingSaldoRecommendation(null)}
+                  className="rounded-xl border border-slate-300 px-5 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Batal
+                </button>
+
+                <button
+                  type="button"
+                  disabled={savingSaldoEdit}
+                  onClick={() => void saveSaldoEdit()}
+                  className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {savingSaldoEdit ? "Menyimpan..." : "Simpan Perubahan"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {/* MODAL PENGATURAN RUMUS INDEKS CAPAIAN */}
         {showIndeksRumusModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4">
