@@ -371,7 +371,12 @@ export default function DashboardPage() {
   const masukSaldoGlobal = safeNumber(summary?.masukSaldo);
   const belumSaldoGlobal = safeNumber(summary?.belumSaldo);
 
-  const persentaseSaldoGlobal = safePercentage(masukSaldoGlobal, total);
+  const totalRekomendasiBersaldo = masukSaldoGlobal + belumSaldoGlobal;
+
+  const persentaseSaldoGlobal = safePercentage(
+    masukSaldoGlobal,
+    totalRekomendasiBersaldo
+  );
 
   const capaianOtomatis = safeNumber(
     capaianData?.capaian_otomatis ?? summary?.capaian
