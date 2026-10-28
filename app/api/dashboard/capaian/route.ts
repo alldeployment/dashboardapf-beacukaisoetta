@@ -194,8 +194,22 @@ async function getSummary(year: number | null) {
       COUNT(*) FILTER (
         WHERE UPPER(TRIM(COALESCE(follow_up_status, '')))
           IN ('SUDAH_TUNTAS', 'TL_SUDAH_TUNTAS')
-      )::int AS tl_sudah_tuntas
-
+      )::int AS tl_sudah_tuntas,
+      COUNT(*) FILTER (
+        WHERE UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
+      )::int AS masuk_saldo,
+      
+      COUNT(*) FILTER (
+        WHERE UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
+          AND UPPER(TRIM(COALESCE(follow_up_status, '')))
+            IN ('SUDAH_TL', 'BELUM_TUNTAS', 'TL_BELUM_TUNTAS')
+      )::int AS masuk_tl_belum_tuntas,
+      
+      COUNT(*) FILTER (
+        WHERE UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
+          AND UPPER(TRIM(COALESCE(follow_up_status, '')))
+            IN ('SUDAH_TUNTAS', 'TL_SUDAH_TUNTAS')
+      )::int AS masuk_tl_sudah_tuntas
     FROM public.recommendations
     WHERE $1::int IS NULL
        OR tahun_periode = $1::int
@@ -284,13 +298,17 @@ export async function GET(request: Request) {
       String(rumusTersimpan?.rumus_persentase_saldo ?? "").trim() ||
       RUMUS_PERSENTASE_SALDO_DEFAULT;
 
+    const masukSaldo = Number(summary?.masuk_saldo ?? 0);
+    const masukTLBelumTuntas = Number(summary?.masuk_tl_belum_tuntas ?? 0);
+    const masukTLSudahTuntas = Number(summary?.masuk_tl_sudah_tuntas ?? 0);
+
     const persentaseSaldoOtomatis =
-      saldo > 0
+      masukSaldo > 0
         ? hitungRumusIndeks(normalizePercentLiterals(rumusPersentaseSaldo), {
-            capaian: capaianOtomatis,
-            saldo,
-            tl_belum_tuntas: tlBelumTuntas,
-            tl_sudah_tuntas: tlSudahTuntas,
+            capaian: 0,
+            saldo: masukSaldo,
+            tl_belum_tuntas: masukTLBelumTuntas,
+            tl_sudah_tuntas: masukTLSudahTuntas,
           })
         : 0;
 
@@ -456,64 +474,7 @@ export async function PUT(request: Request) {
         message: "Rumus Persentase Saldo berhasil disimpan.",
       });
     }
-    if (body.rumus_persentase_saldo !== undefined) {
-      const formula = String(body.rumus_persentase_saldo ?? "").trim();
 
-      if (!formula) {
-        return NextResponse.json(
-          {
-            ok: false,
-            message: "Rumus Persentase Saldo tidak boleh kosong.",
-          },
-          { status: 400 }
-        );
-      }
-
-      await getOrCreateRumus();
-
-      try {
-        const hasilUji = hitungRumusIndeks(normalizePercentLiterals(formula), {
-          capaian: 0.5,
-          saldo: 10,
-          tl_belum_tuntas: 3,
-          tl_sudah_tuntas: 4,
-        });
-
-        if (!Number.isFinite(hasilUji)) {
-          throw new Error("Hasil rumus bukan angka yang valid.");
-        }
-      } catch (error) {
-        return NextResponse.json(
-          {
-            ok: false,
-            message: "Rumus Persentase Saldo tidak valid.",
-            error:
-              error instanceof Error
-                ? error.message
-                : "Rumus tidak dapat dihitung.",
-          },
-          { status: 400 }
-        );
-      }
-
-      await pool.query(
-        `
-        UPDATE public.pengaturan_rumus_capaian
-        SET
-          rumus_persentase_saldo = $1,
-          versi = versi + 1,
-          updated_at = CURRENT_TIMESTAMP
-        WHERE id = 1
-        `,
-        [formula]
-      );
-
-      return NextResponse.json({
-        ok: true,
-        year: settingsYear,
-        message: "Rumus Persentase Saldo berhasil disimpan.",
-      });
-    }
     // SIMPAN RUMUS CAPAIAN SAJA
     if (body.rumus_capaian !== undefined && body.rumus_indeks === undefined) {
       const rumusCapaian = String(body.rumus_capaian ?? "").trim();
