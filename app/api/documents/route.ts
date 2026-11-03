@@ -24,6 +24,10 @@ export async function GET(request: NextRequest) {
       schema: dbCheck.rows[0].schema,
       search_path: dbCheck.rows[0].search_path,
       document_table: dbCheck.rows[0].document_table,
+
+      database_host: process.env.DATABASE_URL
+        ? new URL(process.env.DATABASE_URL).hostname
+        : null,
     });
     const { searchParams } = new URL(request.url);
 
