@@ -6,29 +6,11 @@ const ALLOWED_EXTENSIONS = ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx"];
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
 
-// GET - mengambil daftar dokumen
+// ==========================================
+// GET - Mengambil daftar dokumen
+// ==========================================
 export async function GET(request: NextRequest) {
   try {
-    const dbCheck = await pool.query(`
-  SELECT
-    current_database() AS database,
-    current_schema() AS schema,
-    current_setting('search_path') AS search_path,
-    to_regclass('public.document_files') AS document_table
-`);
-
-    console.log("DOCUMENT DB CHECK:", dbCheck.rows[0]);
-    return NextResponse.json({
-      message: "Pengecekan database dari Vercel",
-      database: dbCheck.rows[0].database,
-      schema: dbCheck.rows[0].schema,
-      search_path: dbCheck.rows[0].search_path,
-      document_table: dbCheck.rows[0].document_table,
-
-      database_host: process.env.DATABASE_URL
-        ? new URL(process.env.DATABASE_URL).hostname
-        : null,
-    });
     const { searchParams } = new URL(request.url);
 
     const scope = searchParams.get("scope");
@@ -43,7 +25,7 @@ export async function GET(request: NextRequest) {
       result = await pool.query(
         `
         SELECT *
-        FROM document_files
+        FROM public.document_files
         WHERE recommendation_id = $1
           AND document_scope = 'RECOMMENDATION'
         ORDER BY created_at DESC
@@ -54,7 +36,7 @@ export async function GET(request: NextRequest) {
       result = await pool.query(
         `
         SELECT *
-        FROM document_files
+        FROM public.document_files
         WHERE source = $1
           AND lha_number = $2
           AND ($3::date IS NULL OR lha_date = $3::date)
@@ -66,7 +48,7 @@ export async function GET(request: NextRequest) {
     } else {
       result = await pool.query(`
         SELECT *
-        FROM document_files
+        FROM public.document_files
         ORDER BY created_at DESC
       `);
     }
@@ -85,18 +67,11 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - upload dokumen
+// ==========================================
+// POST - Upload dokumen
+// ==========================================
 export async function POST(request: NextRequest) {
   try {
-    const dbInfo = await pool.query(`
-  SELECT
-    current_database() AS database,
-    current_schema() AS schema,
-    current_setting('search_path') AS search_path,
-    to_regclass('public.document_files') AS document_table
-`);
-
-    console.log("DOCUMENTS API DB INFO:", dbInfo.rows[0]);
     const formData = await request.formData();
 
     const file = formData.get("file");
@@ -117,9 +92,7 @@ export async function POST(request: NextRequest) {
     // Validasi file
     if (!(file instanceof File)) {
       return NextResponse.json(
-        {
-          error: "File dokumen wajib dipilih",
-        },
+        { error: "File dokumen wajib dipilih" },
         { status: 400 }
       );
     }
@@ -127,9 +100,7 @@ export async function POST(request: NextRequest) {
     // Validasi source dan nomor LHA
     if (!source || !lhaNumber) {
       return NextResponse.json(
-        {
-          error: "Source dan nomor LHA wajib diisi",
-        },
+        { error: "Source dan nomor LHA wajib diisi" },
         { status: 400 }
       );
     }
@@ -137,29 +108,28 @@ export async function POST(request: NextRequest) {
     // Validasi scope
     if (scope !== "FOLDER" && scope !== "RECOMMENDATION") {
       return NextResponse.json(
-        {
-          error: "Document scope tidak valid",
-        },
+        { error: "Document scope tidak valid" },
         { status: 400 }
       );
     }
 
-    // Recommendation wajib memiliki ID
-    if (scope === "RECOMMENDATION" && !recommendationId) {
+    // Validasi ID rekomendasi
+    if (
+      scope === "RECOMMENDATION" &&
+      (!recommendationId ||
+        !Number.isSafeInteger(recommendationId) ||
+        recommendationId <= 0)
+    ) {
       return NextResponse.json(
-        {
-          error: "Recommendation ID wajib untuk dokumen rekomendasi",
-        },
+        { error: "Recommendation ID tidak valid" },
         { status: 400 }
       );
     }
 
-    // Validasi ukuran
+    // Validasi ukuran file
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        {
-          error: "Ukuran file maksimal 20 MB",
-        },
+        { error: "Ukuran file maksimal 20 MB" },
         { status: 400 }
       );
     }
@@ -183,7 +153,7 @@ export async function POST(request: NextRequest) {
       const recommendationCheck = await pool.query(
         `
         SELECT id
-        FROM recommendations
+        FROM public.recommendations
         WHERE id = $1
         LIMIT 1
         `,
@@ -192,32 +162,23 @@ export async function POST(request: NextRequest) {
 
       if (recommendationCheck.rowCount === 0) {
         return NextResponse.json(
-          {
-            error: "Rekomendasi tidak ditemukan",
-          },
+          { error: "Rekomendasi tidak ditemukan" },
           { status: 404 }
         );
       }
     }
 
-    // ==========================================
-    // VERCEL BLOB - OIDC
-    // ==========================================
-
-    // Upload ke Vercel Blob
+    // Upload file ke Vercel Blob
     const blob = await put(`documents/${Date.now()}-${originalName}`, file, {
       access: "public",
       addRandomSuffix: true,
       contentType: file.type || "application/octet-stream",
     });
 
-    // ==========================================
-    // SIMPAN INFORMASI FILE KE DATABASE
-    // ==========================================
-
+    // Simpan metadata dokumen ke PostgreSQL
     const result = await pool.query(
       `
-      INSERT INTO document_files (
+      INSERT INTO public.document_files (
         recommendation_id,
         source,
         lha_number,
@@ -263,25 +224,26 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE - hapus dokumen
+// ==========================================
+// DELETE - Menghapus dokumen
+// ==========================================
 export async function DELETE(request: NextRequest) {
   try {
     const body = await request.json();
     const id = Number(body.id);
 
-    if (!id) {
+    if (!Number.isSafeInteger(id) || id <= 0) {
       return NextResponse.json(
-        {
-          error: "ID dokumen wajib diisi",
-        },
+        { error: "ID dokumen tidak valid" },
         { status: 400 }
       );
     }
 
+    // Cari dokumen berdasarkan ID
     const result = await pool.query(
       `
       SELECT *
-      FROM document_files
+      FROM public.document_files
       WHERE id = $1
       LIMIT 1
       `,
@@ -290,9 +252,7 @@ export async function DELETE(request: NextRequest) {
 
     if (result.rowCount === 0) {
       return NextResponse.json(
-        {
-          error: "Dokumen tidak ditemukan",
-        },
+        { error: "Dokumen tidak ditemukan" },
         { status: 404 }
       );
     }
@@ -302,10 +262,10 @@ export async function DELETE(request: NextRequest) {
     // Hapus file dari Vercel Blob
     await del(document.file_url);
 
-    // Hapus record dari database
+    // Hapus metadata dari PostgreSQL
     await pool.query(
       `
-      DELETE FROM document_files
+      DELETE FROM public.document_files
       WHERE id = $1
       `,
       [id]
