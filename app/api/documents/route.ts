@@ -18,6 +18,13 @@ export async function GET(request: NextRequest) {
 `);
 
     console.log("DOCUMENT DB CHECK:", dbCheck.rows[0]);
+    return NextResponse.json({
+      message: "Pengecekan database dari Vercel",
+      database: dbCheck.rows[0].database,
+      schema: dbCheck.rows[0].schema,
+      search_path: dbCheck.rows[0].search_path,
+      document_table: dbCheck.rows[0].document_table,
+    });
     const { searchParams } = new URL(request.url);
 
     const scope = searchParams.get("scope");
