@@ -979,8 +979,8 @@ export default function DashboardPage() {
                     </h3>
 
                     <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
-                      Berdasarkan perhitungan capaian rekomendasi yang diterima
-                      dari sistem.
+                      Berdasarkan perhitungan capaian dengan seluruh rekomendasi
+                      baik BPK maupun ITJEN.
                     </p>
                   </div>
 

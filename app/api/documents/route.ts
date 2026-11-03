@@ -9,6 +9,15 @@ const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
 // GET - mengambil daftar dokumen
 export async function GET(request: NextRequest) {
   try {
+    const dbCheck = await pool.query(`
+  SELECT
+    current_database() AS database,
+    current_schema() AS schema,
+    current_setting('search_path') AS search_path,
+    to_regclass('public.document_files') AS document_table
+`);
+
+    console.log("DOCUMENT DB CHECK:", dbCheck.rows[0]);
     const { searchParams } = new URL(request.url);
 
     const scope = searchParams.get("scope");
