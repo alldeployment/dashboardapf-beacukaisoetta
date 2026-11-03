@@ -77,6 +77,15 @@ export async function GET(request: NextRequest) {
 // POST - upload dokumen
 export async function POST(request: NextRequest) {
   try {
+    const dbInfo = await pool.query(`
+  SELECT
+    current_database() AS database,
+    current_schema() AS schema,
+    current_setting('search_path') AS search_path,
+    to_regclass('public.document_files') AS document_table
+`);
+
+    console.log("DOCUMENTS API DB INFO:", dbInfo.rows[0]);
     const formData = await request.formData();
 
     const file = formData.get("file");
