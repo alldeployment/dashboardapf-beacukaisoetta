@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+
 import RecommendationForm from "@/components/RecommendationForm";
 
 type Recommendation = {
@@ -279,18 +280,39 @@ export default function ItjenPage() {
     <main className="min-h-screen bg-[#F4F7FB] text-slate-800">
       {/* HEADER */}
       <section className="relative overflow-hidden bg-[#071426]">
-        <div
-          className="absolute inset-0 bg-cover bg-center opacity-20"
-          style={{ backgroundImage: "url('/images/gedung-bea-cukai.jpg')" }}
-        />
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#D4A72C]/50 bg-[#071426] shadow-lg">
+          <svg
+            className="h-6 w-6 text-[#D4A72C]"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M12 3L20 6V11C20 16 16.5 19.5 12 21C7.5 19.5 4 16 4 11V6L12 3Z" />
+            <path d="M9 12L11 14L15 10" />
+          </svg>
+        </div>
         <div className="absolute inset-0 bg-gradient-to-r from-[#071426] via-[#071426]/95 to-[#071426]/70" />
 
         <div className="relative mx-auto max-w-[1600px] px-6 py-9 lg:px-10 lg:py-10">
           <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <div className="mb-5 flex items-center gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#D4A72C]/50 bg-[#071426] text-lg font-bold text-[#D4A72C]">
-                  I
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#D4A72C]/50 bg-[#071426] shadow-lg">
+                  <svg
+                    className="h-6 w-6 text-[#D4A72C]"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M12 3L20 6V11C20 16 16.5 19.5 12 21C7.5 19.5 4 16 4 11V6L12 3Z" />
+                    <path d="M9 12L11 14L15 10" />
+                  </svg>
                 </div>
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-[#D4A72C]">
@@ -803,8 +825,12 @@ export default function ItjenPage() {
 
                       <td className="px-6 py-5">
                         <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#071426] text-xs font-bold text-[#D4A72C]">
-                            I
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#D4A72C]/30 bg-[#D4A72C]/10">
+                            <img
+                              src="/logobeacukai2.png"
+                              alt="Logo Bea Cukai"
+                              className="h-7 w-7 object-contain"
+                            />
                           </div>
                           <div>
                             <p className="font-semibold text-[#071426]">

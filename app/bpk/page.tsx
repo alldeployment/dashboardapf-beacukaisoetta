@@ -346,8 +346,12 @@ export default function BpkPage() {
           <div className="flex flex-col justify-between gap-7 xl:flex-row xl:items-end">
             <div>
               <div className="mb-4 flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#D4A72C]/30 bg-[#D4A72C]/10 text-lg font-bold text-[#D4A72C]">
-                  B
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#D4A72C]/30 bg-[#D4A72C]/10">
+                  <img
+                    src="/logobeacukai2.png"
+                    alt="Logo Bea Cukai"
+                    className="h-7 w-7 object-contain"
+                  />
                 </div>
 
                 <div>
@@ -954,8 +958,12 @@ export default function BpkPage() {
 
                       <td className="px-6 py-5">
                         <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#071426] text-xs font-bold text-[#D4A72C]">
-                            BPK
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#D4A72C]/30 bg-[#D4A72C]/10">
+                            <img
+                              src="/logobeacukai2.png"
+                              alt="Logo Bea Cukai"
+                              className="h-7 w-7 object-contain"
+                            />
                           </div>
 
                           <div>

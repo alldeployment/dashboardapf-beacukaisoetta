@@ -820,8 +820,7 @@ export default function RekomendasiPage() {
 
               <p className="mt-2 max-w-3xl text-sm text-slate-200">
                 Kelola LHP/LHA sebagai folder yang berisi satu atau beberapa
-                rekomendasi. Capaian rekomendasi dihitung oleh sistem, sedangkan
-                capaian keseluruhan dapat ditentukan secara manual.
+                rekomendasi.
               </p>
             </div>
 
@@ -853,108 +852,6 @@ export default function RekomendasiPage() {
             </button>
           </div>
         )}
-
-        {/* KPI */}
-        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-          <KpiCard
-            title="Total Rekomendasi"
-            value={summary.total || data.length}
-            description={`${groupedFolders.length} folder LHP/LHA`}
-            icon="📋"
-          />
-          <KpiCard
-            title="Belum TL"
-            value={summary.belumTl || filteredStats.belumTl}
-            description="Masih membutuhkan tindak lanjut"
-            icon="⏳"
-          />
-          <KpiCard
-            title="Sudah TL"
-            value={summary.sudahTl || filteredStats.sudahTl}
-            description="Sudah dilakukan tindak lanjut"
-            icon="🔄"
-          />
-          <KpiCard
-            title="Sudah Tuntas"
-            value={summary.sudahTuntas || filteredStats.sudahTuntas}
-            description="Rekomendasi telah tuntas"
-            icon="✅"
-          />
-          {/* CAPAIAN OTOMATIS */}
-          <KpiCard
-            title="Capaian"
-            value={formatPercent(automaticCapaian * 100)}
-            description="Hasil perhitungan Sistem"
-            icon="📈"
-          />
-          {/* INDEKS CAPAIAN KESELURUHAN */}
-          <KpiCard
-            title="Indeks Capaian"
-            value={
-              <div className="flex flex-wrap items-center gap-2">
-                <span>{formatPercent(indeksCapaian * 100)}</span>
-
-                <button
-                  type="button"
-                  onClick={() => setShowRumusModal(true)}
-                  className="rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-bold text-purple-700 hover:bg-purple-100"
-                >
-                  Atur Rumus
-                </button>
-              </div>
-            }
-            description="Indeks capaian keseluruhan"
-            icon="🎯"
-          />
-          ```
-        </section>
-
-        {/* BPK + ITJEN */}
-        <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <SummaryPanel
-            title="BPK"
-            icon="🏛️"
-            total={summary.bpk.total}
-            items={[
-              {
-                label: "Masuk Saldo",
-                value: summary.bpk.masukSaldo,
-              },
-              {
-                label: "Belum Saldo",
-                value: summary.bpk.belumSaldo,
-              },
-              {
-                label: "Keuangan",
-                value: summary.bpk.keuangan,
-              },
-              {
-                label: "Bukan Keuangan",
-                value: summary.bpk.bukanKeuangan,
-              },
-            ]}
-          />
-
-          <SummaryPanel
-            title="ITJEN"
-            icon="🛡️"
-            total={summary.itjen.total}
-            items={[
-              {
-                label: "Belum TL",
-                value: summary.itjen.belumTl,
-              },
-              {
-                label: "Sudah TL",
-                value: summary.itjen.sudahTl,
-              },
-              {
-                label: "Sudah Tuntas",
-                value: summary.itjen.sudahTuntas,
-              },
-            ]}
-          />
-        </section>
 
         {/* FILTER */}
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

@@ -57,7 +57,16 @@ type Recommendation = {
   tindak_lanjut?: string | null;
   capaian?: number | null;
 };
-
+type TriwulanResult = {
+  nomor: number;
+  capaian: number;
+  capaian_persen: number;
+  rumus: string;
+  total_rekomendasi: number;
+  belum_tl: number;
+  tl_belum_tuntas: number;
+  tl_sudah_tuntas: number;
+};
 export default function DashboardPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
@@ -72,6 +81,7 @@ export default function DashboardPage() {
     indeks_capaian_otomatis: number;
     indeks_capaian_mode: "MANUAL" | "OTOMATIS";
     persentase_saldo?: number;
+    triwulan?: TriwulanResult[];
     rumus?: {
       rumus_capaian?: string;
       rumus_indeks?: string;
@@ -112,6 +122,13 @@ export default function DashboardPage() {
   const [deletingSaldoId, setDeletingSaldoId] = useState<number | null>(null);
 
   const [savingRumus, setSavingRumus] = useState(false);
+  const [selectedTriwulan, setSelectedTriwulan] = useState<
+    1 | 2 | 3 | 4 | null
+  >(null);
+
+  const [rumusTriwulan, setRumusTriwulan] = useState(
+    "min(capaian / 81 * 100, 120%)"
+  );
 
   const loadDashboard = useCallback(async (year: number) => {
     try {
@@ -283,6 +300,55 @@ export default function DashboardPage() {
       setSavingRumus(false);
     }
   }
+  async function saveRumusTriwulan() {
+    if (selectedTriwulan === null) return;
+
+    if (!rumusTriwulan.trim()) {
+      alert("Rumus triwulan tidak boleh kosong.");
+      return;
+    }
+
+    const quarter = selectedTriwulan;
+
+    try {
+      setSavingRumus(true);
+
+      const rumusKey = `rumus_triwulan_${quarter}` as
+        | "rumus_triwulan_1"
+        | "rumus_triwulan_2"
+        | "rumus_triwulan_3"
+        | "rumus_triwulan_4";
+
+      const response = await fetch("/api/dashboard/capaian", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          year: selectedYear,
+          [rumusKey]: rumusTriwulan.trim(),
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || result?.ok === false) {
+        throw new Error(result?.message || "Gagal menyimpan rumus triwulan.");
+      }
+
+      setSelectedTriwulan(null);
+
+      await loadDashboard(selectedYear);
+
+      alert(`Rumus Triwulan ${quarter} berhasil disimpan.`);
+    } catch (err) {
+      alert(
+        err instanceof Error ? err.message : "Gagal menyimpan rumus triwulan."
+      );
+    } finally {
+      setSavingRumus(false);
+    }
+  }
   const safeNumber = (value: unknown): number => {
     const number = Number(value);
 
@@ -300,6 +366,20 @@ export default function DashboardPage() {
     if (!Number.isFinite(result)) return 0;
 
     return Math.min(100, Math.max(0, Math.round(result)));
+  };
+
+  // Fungsi persentase dengan angka desimal
+  const safePercentageDecimal = (value: unknown, total: unknown): number => {
+    const numerator = safeNumber(value);
+    const denominator = safeNumber(total);
+
+    if (denominator <= 0) return 0;
+
+    const result = (numerator / denominator) * 100;
+
+    if (!Number.isFinite(result)) return 0;
+
+    return Math.min(100, Math.max(0, result));
   };
 
   const formatDate = (date: string) => {
@@ -376,10 +456,7 @@ export default function DashboardPage() {
     capaianData.persentase_saldo !== null
       ? Math.min(
           100,
-          Math.max(
-            0,
-            Math.round(safeNumber(capaianData.persentase_saldo) * 100)
-          )
+          Math.max(0, safeNumber(capaianData.persentase_saldo) * 100)
         )
       : safeNumber(summary?.persentaseSaldo);
 
@@ -451,7 +528,10 @@ export default function DashboardPage() {
     ).length,
   };
 
-  const persentaseSaldo = safePercentage(bpkData.masukSaldo, bpkData.total);
+  const persentaseSaldo = safePercentageDecimal(
+    bpkData.masukSaldo,
+    bpkData.total
+  );
 
   const persentaseBelumSaldo = safePercentage(
     bpkData.belumSaldo,
@@ -487,7 +567,7 @@ export default function DashboardPage() {
       (item) => (item.saldo_status ?? "").trim().toUpperCase() === "BELUM_SALDO"
     ).length,
   };
-  const persentaseSaldoItjen = safePercentage(
+  const persentaseSaldoItjen = safePercentageDecimal(
     itjenSaldoData.masukSaldo,
     itjenRecommendationsBySource.length
   );
@@ -956,152 +1036,151 @@ export default function DashboardPage() {
 
         {/* CAPAIAN KESELURUHAN */}
         <section className="mb-6">
-          <div className="grid gap-4 lg:grid-cols-2">
-            {/* CAPAIAN OTOMATIS BERDASARKAN RUMUS */}
-            <div className="relative overflow-hidden rounded-2xl border border-blue-200/70 bg-gradient-to-br from-white via-white to-sky-50 p-6 shadow-xl transition duration-300 hover:shadow-2xl">
-              {/* AKSEN DEKORATIF */}
+          <div className="space-y-4">
+            {/* CAPAIAN OTOMATIS */}
+            <div className="relative overflow-hidden rounded-3xl border border-blue-200/70 bg-gradient-to-br from-white via-white to-sky-50 p-6 shadow-xl">
               <div className="pointer-events-none absolute -right-10 -top-12 h-40 w-40 rounded-full bg-blue-500/10 blur-2xl" />
 
-              <div className="relative z-10 flex h-full flex-col justify-between gap-7">
-                {/* HEADER */}
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1">
+              <div className="relative z-10">
+                <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-start">
+                  <div className="flex-1">
+                    <span className="mb-3 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1">
                       <span className="h-2 w-2 rounded-full bg-blue-500" />
-
-                      <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-blue-700">
-                        Capaian Otomatis
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700">
+                        Capaian KeSeluruhan
                       </span>
-                    </div>
+                    </span>
 
-                    <h3 className="text-lg font-bold tracking-tight text-[#071426]">
-                      Hasil Perhitungan Sistem
+                    <h3 className="text-lg font-bold text-[#071426]">
+                      Persentase Seluruh Rekomendasi
                     </h3>
 
-                    <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
-                      Berdasarkan perhitungan capaian dengan seluruh rekomendasi
-                      baik BPK maupun ITJEN.
+                    <p className="mt-2 max-w-xl text-sm leading-6 text-slate-500">
+                      Hasil perhitungan capaian tindak lanjut berdasarkan
+                      seluruh rekomendasi BPK dan ITJEN
                     </p>
                   </div>
 
-                  {/* NILAI PERSENTASE */}
-                  <div className="min-w-[112px] rounded-2xl border border-blue-200/80 bg-white/90 px-4 py-3 shadow-sm">
-                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                  <div className="min-w-[160px] rounded-2xl border border-blue-200 bg-white p-4 shadow-sm">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                       Capaian Saat Ini
                     </p>
-
-                    <p className="mt-1 text-3xl font-extrabold tracking-tight text-blue-600">
+                    <p className="mt-1 text-3xl font-extrabold text-blue-600">
                       {loading ? "—" : `${capaianPersen}%`}
                     </p>
                   </div>
                 </div>
 
-                {/* PROGRESS BAR */}
-                <div>
-                  <div className="mb-3 flex items-center justify-between gap-3">
+                {/* PROGRES FULL WIDTH */}
+                <div className="mt-6">
+                  <div className="mb-3 flex items-center justify-between">
                     <span className="text-xs font-semibold text-slate-600">
                       Progres Capaian
                     </span>
-
                     <span className="rounded-full bg-blue-100 px-3 py-1 text-[10px] font-bold text-blue-700">
                       Skala 0–100%
                     </span>
                   </div>
 
-                  <div className="h-3 overflow-hidden rounded-full bg-slate-200/80 p-[2px]">
+                  <div className="h-3 w-full overflow-hidden rounded-full bg-slate-200 p-[2px]">
                     <div
-                      className="h-full rounded-full bg-gradient-to-r from-blue-700 via-blue-500 to-cyan-400 transition-all duration-700 ease-out"
+                      className="h-full rounded-full bg-gradient-to-r from-blue-700 via-blue-500 to-cyan-400 transition-all duration-700"
                       style={{
                         width: `${Math.min(100, Math.max(0, capaianPersen))}%`,
                       }}
                     />
                   </div>
 
-                  <div className="mt-2 flex justify-between text-[10px] font-medium text-slate-400">
+                  <div className="mt-2 flex justify-between text-[10px] text-slate-400">
                     <span>0%</span>
                     <span>100%</span>
                   </div>
                 </div>
               </div>
             </div>
+            {/* HASIL CAPAIAN TRIWULAN */}
+            <div className="grid grid-cols-2 gap-3">
+              {([1, 2, 3, 4] as const).map((quarter) => {
+                const item = capaianData?.triwulan?.find(
+                  (data) => data.nomor === quarter
+                );
 
-            {/* INDEKS CAPAIAN */}
-            <div className="relative overflow-hidden rounded-2xl border border-amber-200/70 bg-gradient-to-br from-white via-white to-amber-50 p-6 shadow-xl transition duration-300 hover:shadow-2xl">
-              {/* AKSEN DEKORATIF */}
-              <div className="pointer-events-none absolute -right-10 -top-12 h-40 w-40 rounded-full bg-[#D4A72C]/10 blur-2xl" />
+                const percent = safeNumber(item?.capaian_persen);
 
-              <div className="relative z-10 flex h-full flex-col justify-between gap-7">
-                {/* HEADER */}
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1">
-                      <span className="h-2 w-2 rounded-full bg-[#D4A72C]" />
+                const progress = Math.min(100, Math.max(0, percent));
 
-                      <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#9B7518]">
-                        Capaian Keseluruhan
-                      </span>
-                    </div>
+                return (
+                  <div
+                    key={quarter}
+                    className="relative overflow-hidden rounded-2xl border border-blue-200/70 bg-gradient-to-br from-white via-white to-sky-50 p-4 shadow-xl transition hover:shadow-2xl"
+                  >
+                    <div className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-blue-500/10 blur-2xl" />
 
-                    <h3 className="text-lg font-bold tracking-tight text-[#071426]">
-                      Indeks Capaian Tindak Lanjut
-                    </h3>
+                    <div className="relative z-10">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-blue-700">
+                          Triwulan
+                        </span>
 
-                    <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
-                      Nilai indeks berdasarkan rumus yang tersimpan pada sistem.
-                    </p>
-                  </div>
+                        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 font-bold text-blue-700">
+                          {quarter}
+                        </span>
+                      </div>
 
-                  {/* NILAI INDEKS */}
-                  {/* PENGATURAN DAN NILAI INDEKS */}
-                  <div className="flex shrink-0 flex-col items-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowIndeksRumusModal(true)}
-                      disabled={savingRumus}
-                      className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs font-semibold text-amber-700 transition hover:bg-amber-50 disabled:opacity-50"
-                    >
-                      Atur Rumus
-                    </button>
+                      <h3 className="mt-3 text-base font-bold text-[#071426]">
+                        Triwulan {quarter}
+                      </h3>
 
-                    <div className="min-w-[112px] rounded-2xl border border-amber-200/80 bg-white/90 px-4 py-3 shadow-sm">
-                      <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
-                        Nilai Indeks
+                      <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                        Hasil Capaian
                       </p>
 
-                      <p className="mt-1 text-3xl font-extrabold tracking-tight text-[#9B7518]">
-                        {loading ? "—" : `${indeksCapaianPersen}%`}
+                      <p className="mt-1 text-2xl font-extrabold text-blue-600">
+                        {loading
+                          ? "—"
+                          : `${percent.toLocaleString("id-ID", {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}%`}
                       </p>
+
+                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-blue-700 to-cyan-400 transition-all duration-700"
+                          style={{
+                            width: `${loading ? 0 : progress}%`,
+                          }}
+                        />
+                      </div>
+
+                      <div className="mt-3 rounded-lg border border-slate-100 bg-white/90 p-2">
+                        <p className="text-[10px] text-slate-400">
+                          Total Rekomendasi
+                        </p>
+
+                        <p className="text-lg font-bold text-[#071426]">
+                          {loading ? "—" : item?.total_rekomendasi ?? 0}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        disabled={savingRumus || loading}
+                        onClick={() => {
+                          setSelectedTriwulan(quarter);
+
+                          setRumusTriwulan(
+                            item?.rumus ?? "min(capaian / 81 * 100, 120%)"
+                          );
+                        }}
+                        className="mt-3 w-full rounded-lg border border-blue-200 bg-white px-2 py-2 text-[10px] font-bold text-blue-700 transition hover:bg-blue-50 disabled:opacity-50"
+                      >
+                        Atur Rumus
+                      </button>
                     </div>
                   </div>
-                </div>
-
-                {/* PROGRESS INDEKS */}
-                <div>
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <span className="text-xs font-semibold text-slate-600">
-                      Progres Indeks
-                    </span>
-
-                    <span className="rounded-full bg-amber-100 px-3 py-1 text-[10px] font-bold text-[#8A6810]">
-                      Skala 0–120%
-                    </span>
-                  </div>
-
-                  <div className="h-3 overflow-hidden rounded-full bg-slate-200/80 p-[2px]">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-[#B88912] via-[#D4A72C] to-[#F0C85A] transition-all duration-700 ease-out"
-                      style={{
-                        width: `${(indeksCapaianBar / 120) * 100}%`,
-                      }}
-                    />
-                  </div>
-
-                  <div className="mt-2 flex justify-between text-[10px] font-medium text-slate-400">
-                    <span>0%</span>
-                    <span>120%</span>
-                  </div>
-                </div>
-              </div>
+                );
+              })}
             </div>
           </div>
         </section>
@@ -1122,9 +1201,87 @@ export default function DashboardPage() {
               BPK dan ITJEN.
             </p>
           </div>
+          {/* INDEKS CAPAIAN */}
+          <div className="relative overflow-hidden rounded-2xl border border-amber-200/70 bg-gradient-to-br from-white via-white to-amber-50 p-6 shadow-xl transition duration-300 hover:shadow-2xl">
+            {/* AKSEN DEKORATIF */}
+            <div className="pointer-events-none absolute -right-10 -top-12 h-40 w-40 rounded-full bg-[#D4A72C]/10 blur-2xl" />
 
+            <div className="relative z-10 flex h-full flex-col justify-between gap-7">
+              {/* HEADER */}
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1">
+                    <span className="h-2 w-2 rounded-full bg-[#D4A72C]" />
+
+                    <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#9B7518]">
+                      Capaian Indeks
+                    </span>
+                  </div>
+
+                  <h3 className="text-lg font-bold tracking-tight text-[#071426]">
+                    Persentase Indeks Capaian Tindak Lanjut
+                  </h3>
+
+                  <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
+                    Hasil Perhitungan Rekomendasi yang Masuk Saldo & Belum Masuk
+                    Saldo
+                  </p>
+                </div>
+
+                {/* NILAI INDEKS */}
+                {/* PENGATURAN DAN NILAI INDEKS */}
+                <div className="flex shrink-0 flex-col items-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowIndeksRumusModal(true)}
+                    disabled={savingRumus}
+                    className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs font-semibold text-amber-700 transition hover:bg-amber-50 disabled:opacity-50"
+                  >
+                    Atur Rumus
+                  </button>
+
+                  <div className="min-w-[112px] rounded-2xl border border-amber-200/80 bg-white/90 px-4 py-3 shadow-sm">
+                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                      Nilai Indeks
+                    </p>
+
+                    <p className="mt-1 text-3xl font-extrabold tracking-tight text-[#9B7518]">
+                      {loading ? "—" : `${indeksCapaianPersen}%`}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* PROGRESS INDEKS */}
+              <div>
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <span className="text-xs font-semibold text-slate-600">
+                    Progres Indeks
+                  </span>
+
+                  <span className="rounded-full bg-amber-100 px-3 py-1 text-[10px] font-bold text-[#8A6810]">
+                    Skala 0–120%
+                  </span>
+                </div>
+
+                <div className="h-3 overflow-hidden rounded-full bg-slate-200/80 p-[2px]">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-[#B88912] via-[#D4A72C] to-[#F0C85A] transition-all duration-700 ease-out"
+                    style={{
+                      width: `${(indeksCapaianBar / 120) * 100}%`,
+                    }}
+                  />
+                </div>
+
+                <div className="mt-2 flex justify-between text-[10px] font-medium text-slate-400">
+                  <span>0%</span>
+                  <span>120%</span>
+                </div>
+              </div>
+            </div>
+          </div>
           {/* GRID EMPAT KARTU */}
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="mt-6 grid grid-cols-1 items-stretch gap-5 sm:grid-cols-2 xl:grid-cols-3">
             {/* MASUK SALDO */}
             <div
               role="button"
@@ -1140,7 +1297,7 @@ export default function DashboardPage() {
                   setSelectedSaldoRecommendation(null);
                 }
               }}
-              className="flex min-h-[155px] cursor-pointer flex-col justify-between rounded-2xl border border-green-200/70 bg-white p-5 text-left shadow-lg transition duration-200 hover:-translate-y-1 hover:shadow-2xl focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="group relative flex min-h-[180px] cursor-pointer flex-col justify-between overflow-hidden rounded-2xl border border-green-200/70 bg-gradient-to-br from-white to-green-50/70 p-6 text-left shadow-lg shadow-green-950/5 transition duration-300 hover:-translate-y-1 hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-green-500"
             >
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs font-bold uppercase tracking-wider text-green-700">
@@ -1178,7 +1335,7 @@ export default function DashboardPage() {
                   setSelectedSaldoRecommendation(null);
                 }
               }}
-              className="flex min-h-[155px] cursor-pointer flex-col justify-between rounded-2xl border border-orange-200/70 bg-white p-5 text-left shadow-lg transition duration-200 hover:-translate-y-1 hover:shadow-2xl focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="group relative flex min-h-[180px] cursor-pointer flex-col justify-between overflow-hidden rounded-2xl border border-orange-200/70 bg-gradient-to-br from-white to-orange-50/70 p-6 text-left shadow-lg shadow-orange-950/5 transition duration-300 hover:-translate-y-1 hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-orange-500"
             >
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs font-bold uppercase tracking-wider text-orange-700">
@@ -1202,7 +1359,7 @@ export default function DashboardPage() {
             </div>
 
             {/* PERSENTASE SALDO */}
-            <div className="flex min-h-[155px] flex-col rounded-2xl border border-blue-200/70 bg-white p-5 shadow-lg transition duration-200 hover:-translate-y-1 hover:shadow-2xl">
+            <div className="group relative flex min-h-[180px] flex-col justify-between overflow-hidden rounded-2xl border border-blue-200/70 bg-gradient-to-br from-white to-blue-50/70 p-6 shadow-lg shadow-blue-950/5 transition duration-300 hover:-translate-y-1 hover:shadow-xl">
               <div className="flex items-start justify-between gap-2">
                 <p className="text-xs font-bold uppercase tracking-wider text-blue-700">
                   Persentase Saldo
@@ -1214,6 +1371,7 @@ export default function DashboardPage() {
                   {loading
                     ? "—"
                     : `${persentaseSaldoGlobal.toLocaleString("id-ID", {
+                        minimumFractionDigits: 2,
                         maximumFractionDigits: 2,
                       })}%`}
                 </p>
@@ -1287,7 +1445,11 @@ export default function DashboardPage() {
                     </span>
 
                     <p className="mt-1 text-4xl font-extrabold tracking-tight text-emerald-600">
-                      {persentaseSaldo}%
+                      {persentaseSaldo.toLocaleString("id-ID", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                      %
                     </p>
 
                     <div className="mt-2 rounded-full bg-emerald-50 px-3 py-1">
@@ -1602,7 +1764,12 @@ export default function DashboardPage() {
                     </span>
 
                     <p className="mt-1 text-4xl font-extrabold tracking-tight text-sky-600">
-                      {loading ? "—" : `${persentaseSaldoItjen}%`}
+                      {loading
+                        ? "—"
+                        : `${persentaseSaldoItjen.toLocaleString("id-ID", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}%`}
                     </p>
 
                     <div className="mt-2 rounded-full bg-sky-50 px-3 py-1">
@@ -2643,6 +2810,81 @@ export default function DashboardPage() {
                   className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
                 >
                   {savingSaldoEdit ? "Menyimpan..." : "Simpan Perubahan"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* MODAL PENGATURAN RUMUS TRIWULAN */}
+        {selectedTriwulan !== null && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/60 p-4">
+            <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-2xl">
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-bold text-[#071426]">
+                    Pengaturan Rumus Triwulan {selectedTriwulan}
+                  </h2>
+
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Pengaturan ini hanya berlaku untuk Triwulan{" "}
+                    {selectedTriwulan}
+                    dan tidak mengubah rumus triwulan lainnya.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedTriwulan(null)}
+                  disabled={savingRumus}
+                  className="rounded-lg px-3 py-1 text-xl text-slate-500 hover:bg-slate-100"
+                >
+                  ×
+                </button>
+              </div>
+
+              <label
+                htmlFor="rumus-triwulan"
+                className="mb-2 block text-sm font-semibold text-[#071426]"
+              >
+                Rumus Capaian Triwulan {selectedTriwulan}
+              </label>
+
+              <textarea
+                id="rumus-triwulan"
+                value={rumusTriwulan}
+                onChange={(event) => setRumusTriwulan(event.target.value)}
+                rows={4}
+                spellCheck={false}
+                className="w-full rounded-xl border border-slate-300 p-3 text-sm text-[#071426] outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                placeholder="Masukkan rumus capaian triwulan"
+              />
+
+              <div className="mt-3 rounded-xl bg-blue-50 p-3">
+                <p className="text-xs leading-5 text-blue-800">
+                  Variabel rumus:
+                  <br />
+                  saldo, belum_tl, tl_belum_tuntas, tl_sudah_tuntas, dan
+                  capaian.
+                </p>
+              </div>
+
+              <div className="mt-6 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSelectedTriwulan(null)}
+                  disabled={savingRumus}
+                  className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Batal
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => void saveRumusTriwulan()}
+                  disabled={savingRumus}
+                  className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {savingRumus ? "Menyimpan..." : "Simpan Rumus"}
                 </button>
               </div>
             </div>

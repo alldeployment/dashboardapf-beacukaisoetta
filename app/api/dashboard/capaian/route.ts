@@ -11,6 +11,7 @@ const RUMUS_PERSENTASE_SALDO_DEFAULT =
   "((70% * tl_belum_tuntas) + tl_sudah_tuntas) / saldo";
 
 const RUMUS_INDEKS_DEFAULT = "min(capaian / 81 * 100, 120%)";
+const RUMUS_TRIWULAN_DEFAULT = "min(capaian / 81 * 100, 120%)";
 
 function normalizePercentLiterals(formula: string): string {
   return formula.replace(/(\d+(?:\.\d+)?)\s*%/g, (_match, value: string) =>
@@ -61,12 +62,40 @@ async function ensureCapaianPeriodeTable() {
 // Pengaturan rumus berlaku global untuk seluruh periode.
 
 async function getOrCreateRumus() {
-  await pool.query(`
-    ALTER TABLE public.pengaturan_rumus_capaian
-    ADD COLUMN IF NOT EXISTS rumus_persentase_saldo TEXT
-    NOT NULL DEFAULT '((70% * tl_belum_tuntas) + tl_sudah_tuntas) / saldo'
-  `);
+  const dbCheck = await pool.query(`
+  SELECT
+    current_database() AS database,
+    current_schema() AS schema,
+    current_setting('search_path') AS search_path,
+    (
+      SELECT string_agg(column_name, ', ' ORDER BY ordinal_position)
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'pengaturan_rumus_capaian'
+    ) AS columns
+`);
 
+  console.log("PEMERIKSAAN DATABASE RUMUS:", dbCheck.rows[0]);
+  console.log("TAHAP RUMUS: ALTER TABLE");
+  await pool.query(`
+  
+  ALTER TABLE public.pengaturan_rumus_capaian
+    ADD COLUMN IF NOT EXISTS rumus_persentase_saldo TEXT
+      NOT NULL DEFAULT '((70% * tl_belum_tuntas) + tl_sudah_tuntas) / saldo',
+
+    ADD COLUMN IF NOT EXISTS rumus_triwulan_1 TEXT
+      NOT NULL DEFAULT '((70% * tl_belum_tuntas) + (100% * tl_sudah_tuntas)) / saldo',
+
+    ADD COLUMN IF NOT EXISTS rumus_triwulan_2 TEXT
+      NOT NULL DEFAULT '((70% * tl_belum_tuntas) + (100% * tl_sudah_tuntas)) / saldo',
+
+    ADD COLUMN IF NOT EXISTS rumus_triwulan_3 TEXT
+      NOT NULL DEFAULT '((70% * tl_belum_tuntas) + (100% * tl_sudah_tuntas)) / saldo',
+
+    ADD COLUMN IF NOT EXISTS rumus_triwulan_4 TEXT
+      NOT NULL DEFAULT '((70% * tl_belum_tuntas) + (100% * tl_sudah_tuntas)) / saldo'
+`);
+  console.log("TAHAP RUMUS: INSERT");
   await pool.query(
     `
     INSERT INTO public.pengaturan_rumus_capaian (
@@ -87,16 +116,22 @@ async function getOrCreateRumus() {
     ]
   );
 
+  console.log("TAHAP RUMUS: SELECT");
+
   const result = await pool.query(`
     SELECT
-      id,
-      rumus_capaian,
-      rumus_indeks,
-      rumus_persentase_saldo,
-      versi,
-      updated_at
-    FROM public.pengaturan_rumus_capaian
-    WHERE id = 1
+      r.id,
+      r.rumus_capaian,
+      r.rumus_indeks,
+      r.rumus_persentase_saldo,
+      r.rumus_triwulan_1,
+      r.rumus_triwulan_2,
+      r.rumus_triwulan_3,
+      r.rumus_triwulan_4,
+      r.versi,
+      r.updated_at
+    FROM public.pengaturan_rumus_capaian AS r
+    WHERE r.id = 1
     LIMIT 1
   `);
 
@@ -219,9 +254,43 @@ async function getSummary(year: number | null) {
 
   return result.rows[0];
 }
+// Mengambil data rekomendasi berdasarkan tahun dan triwulan LHA/LHP.
+async function getSummaryTriwulan(year: number, quarter: number) {
+  const result = await pool.query(
+    `
+    SELECT
+      COUNT(*)::int AS saldo,
+
+      COUNT(*) FILTER (
+        WHERE UPPER(TRIM(COALESCE(follow_up_status, ''))) = 'BELUM_TL'
+      )::int AS belum_tl,
+
+      COUNT(*) FILTER (
+        WHERE UPPER(TRIM(COALESCE(follow_up_status, '')))
+          IN ('SUDAH_TL', 'BELUM_TUNTAS', 'TL_BELUM_TUNTAS')
+      )::int AS tl_belum_tuntas,
+
+      COUNT(*) FILTER (
+        WHERE UPPER(TRIM(COALESCE(follow_up_status, '')))
+          IN ('SUDAH_TUNTAS', 'TL_SUDAH_TUNTAS')
+      )::int AS tl_sudah_tuntas
+
+    FROM public.recommendations
+
+    WHERE lha_date IS NOT NULL
+      AND EXTRACT(YEAR FROM lha_date::date) = $1
+      AND EXTRACT(QUARTER FROM lha_date::date) = $2
+    `,
+    [year, quarter]
+  );
+
+  return result.rows[0];
+}
 
 // GET: membaca capaian dan menghitung indeks.
 export async function GET(request: Request) {
+  let tahap = "Memulai GET";
+
   try {
     const { searchParams } = new URL(request.url);
     const yearParam = searchParams.get("year");
@@ -254,17 +323,89 @@ export async function GET(request: Request) {
 
     const settingsYear = year ?? new Date().getFullYear();
 
-    const [saved, rumusTersimpan, summary] = await Promise.all([
-      getOrCreateCapaian(settingsYear),
-      getOrCreateRumus(),
-      getSummary(year),
-    ]);
+    tahap = "Mengambil pengaturan capaian";
+    const saved = await getOrCreateCapaian(settingsYear);
+
+    tahap = "Mengambil pengaturan rumus";
+    const rumusTersimpan = await getOrCreateRumus();
+
+    tahap = "Mengambil ringkasan rekomendasi";
+    const summary = await getSummary(year);
+
+    tahap = "Menghitung data triwulan";
 
     const saldo = Number(summary?.saldo ?? 0);
     const belumTL = Number(summary?.belum_tl ?? 0);
     const tlBelumTuntas = Number(summary?.tl_belum_tuntas ?? 0);
     const tlSudahTuntas = Number(summary?.tl_sudah_tuntas ?? 0);
 
+    // =====================================================
+    // PERHITUNGAN CAPAIAN TRIWULAN
+    // =====================================================
+
+    // =====================================================
+    // PERHITUNGAN 4 TRIWULAN
+    // Menggunakan seluruh data rekomendasi dashboard.
+    // Setiap triwulan memiliki rumus tersendiri.
+    // =====================================================
+
+    const rumusDasar =
+      String(rumusTersimpan?.rumus_capaian ?? "").trim() ||
+      RUMUS_CAPAIAN_DEFAULT;
+
+    const capaianDasar =
+      saldo > 0
+        ? hitungRumusIndeks(normalizePercentLiterals(rumusDasar), {
+            capaian: 0,
+            saldo,
+            belum_tl: belumTL,
+            tl_belum_tuntas: tlBelumTuntas,
+            tl_sudah_tuntas: tlSudahTuntas,
+          })
+        : 0;
+
+    if (!Number.isFinite(capaianDasar)) {
+      throw new Error("Capaian dasar tidak valid.");
+    }
+
+    const triwulanData = ([1, 2, 3, 4] as const).map((quarter) => {
+      const rumusKey = `rumus_triwulan_${quarter}` as
+        | "rumus_triwulan_1"
+        | "rumus_triwulan_2"
+        | "rumus_triwulan_3"
+        | "rumus_triwulan_4";
+
+      const rumus =
+        String(rumusTersimpan?.[rumusKey] ?? "").trim() ||
+        RUMUS_TRIWULAN_DEFAULT;
+
+      const capaian =
+        saldo > 0
+          ? hitungRumusIndeks(normalizePercentLiterals(rumus), {
+              capaian: capaianDasar,
+              saldo,
+              belum_tl: belumTL,
+              tl_belum_tuntas: tlBelumTuntas,
+              tl_sudah_tuntas: tlSudahTuntas,
+            })
+          : 0;
+
+      if (!Number.isFinite(capaian)) {
+        throw new Error(`Hasil perhitungan Triwulan ${quarter} tidak valid.`);
+      }
+
+      return {
+        nomor: quarter,
+        capaian,
+        capaian_persen: capaian * 100,
+        capaian_dasar: capaianDasar,
+        rumus,
+        total_rekomendasi: saldo,
+        belum_tl: belumTL,
+        tl_belum_tuntas: tlBelumTuntas,
+        tl_sudah_tuntas: tlSudahTuntas,
+      };
+    });
     // Capaian Otomatis dihitung berdasarkan seluruh rekomendasi.
     const rumusCapaian =
       String(rumusTersimpan?.rumus_capaian ?? "").trim() ||
@@ -334,6 +475,7 @@ export async function GET(request: Request) {
 
       data: {
         rumus: rumusTersimpan,
+        triwulan: triwulanData,
         persentase_saldo: persentaseSaldoOtomatis,
 
         capaian_manual: Number(saved?.capaian_manual ?? 0),
@@ -357,11 +499,15 @@ export async function GET(request: Request) {
       },
     });
   } catch (error) {
-    console.error("GET /api/dashboard/capaian ERROR:", error);
+    console.error("GET /api/dashboard/capaian ERROR:", {
+      tahap,
+      error,
+    });
 
     return NextResponse.json(
       {
         ok: false,
+        tahap,
         message: "Gagal menghitung capaian dan indeks capaian.",
         error: error instanceof Error ? error.message : "Unknown error",
       },
@@ -405,6 +551,90 @@ export async function PUT(request: Request) {
 
     // Pastikan baris pengaturan untuk periode terpilih tersedia.
     await getOrCreateCapaian(settingsYear);
+
+    // =====================================================
+    // SIMPAN RUMUS TRIWULAN SECARA TERPISAH
+    // =====================================================
+
+    const quarterFormulaColumns = {
+      rumus_triwulan_1: "rumus_triwulan_1",
+      rumus_triwulan_2: "rumus_triwulan_2",
+      rumus_triwulan_3: "rumus_triwulan_3",
+      rumus_triwulan_4: "rumus_triwulan_4",
+    } as const;
+
+    const quarterFormulaKey = (
+      Object.keys(quarterFormulaColumns) as Array<
+        keyof typeof quarterFormulaColumns
+      >
+    ).find((key) => body[key] !== undefined);
+
+    if (quarterFormulaKey) {
+      const rumusTriwulan = String(body[quarterFormulaKey] ?? "").trim();
+
+      if (!rumusTriwulan) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message: "Rumus triwulan tidak boleh kosong.",
+          },
+          { status: 400 }
+        );
+      }
+
+      await getOrCreateRumus();
+
+      try {
+        const hasilUji = hitungRumusIndeks(
+          normalizePercentLiterals(rumusTriwulan),
+          {
+            capaian: 0.5,
+            saldo: 10,
+            belum_tl: 3,
+            tl_belum_tuntas: 3,
+            tl_sudah_tuntas: 4,
+          }
+        );
+
+        if (!Number.isFinite(hasilUji)) {
+          throw new Error("Hasil rumus bukan angka yang valid.");
+        }
+      } catch (error) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message: "Rumus triwulan tidak valid.",
+            error:
+              error instanceof Error
+                ? error.message
+                : "Rumus tidak dapat dihitung.",
+          },
+          { status: 400 }
+        );
+      }
+
+      const column = quarterFormulaColumns[quarterFormulaKey];
+
+      await pool.query(
+        `
+    UPDATE public.pengaturan_rumus_capaian
+    SET
+      ${column} = $1,
+      versi = versi + 1,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = 1
+    `,
+        [rumusTriwulan]
+      );
+
+      return NextResponse.json({
+        ok: true,
+        year: settingsYear,
+        message: `Rumus ${quarterFormulaKey
+          .replaceAll("_", " ")
+          .toUpperCase()} berhasil disimpan.`,
+      });
+    }
 
     // =====================================================
     // 1. SIMPAN RUMUS

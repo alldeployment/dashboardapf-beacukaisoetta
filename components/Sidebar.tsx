@@ -25,12 +25,12 @@ const menuGroups = [
       {
         name: "BPK",
         href: "/bpk",
-        icon: "▣",
+        icon: "landmark",
       },
       {
         name: "Itjen",
         href: "/itjen",
-        icon: "◈",
+        icon: "shield-check",
       },
     ],
   },
@@ -138,30 +138,59 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
                       key={item.name}
                       href={item.href}
                       onClick={onClose}
-                      className={`group relative flex items-center gap-3 rounded-xl px-4 py-3 transition-all ${
+                      className={`group relative flex items-center gap-3 rounded-2xl border px-4 py-3 transition-all duration-300 ${
                         active
-                          ? "bg-[#D4A72C]/10 text-[#D4A72C]"
-                          : "text-slate-400 hover:bg-white/5 hover:text-white"
+                          ? "border-[#D4A72C]/40 bg-gradient-to-r from-[#D4A72C]/20 via-[#D4A72C]/10 to-[#D4A72C]/5 text-white shadow-[0_0_20px_rgba(212,167,44,0.10)]"
+                          : "border-transparent text-slate-400 hover:border-white/10 hover:bg-white/[0.05] hover:text-white"
                       }`}
                     >
+                      {/* GOLD ACTIVE INDICATOR */}
                       {active && (
-                        <span className="absolute left-0 h-7 w-1 rounded-r-full bg-[#D4A72C]" />
+                        <span className="absolute left-0 top-1/2 h-9 w-1 -translate-y-1/2 rounded-r-full bg-[#D4A72C] shadow-[0_0_12px_rgba(212,167,44,0.8)]" />
                       )}
 
+                      {/* ICON */}
                       <span
-                        className={`flex h-9 w-9 items-center justify-center rounded-lg text-lg ${
+                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition-all ${
                           active
-                            ? "bg-[#D4A72C]/15 text-[#D4A72C]"
-                            : "bg-white/5 text-slate-400 group-hover:bg-white/10 group-hover:text-white"
+                            ? "border-[#D4A72C]/40 bg-[#D4A72C]/20 text-[#D4A72C]"
+                            : "border-white/5 bg-white/[0.04] text-slate-400 group-hover:bg-white/10 group-hover:text-white"
                         }`}
                       >
-                        {item.icon}
+                        {item.icon === "landmark" ? (
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.8"
+                            className="h-5 w-5"
+                          >
+                            <path d="M3 10h18M5 10v9M9 10v9M15 10v9M19 10v9M3 19h18M2 21h20M12 3 2 8h20L12 3Z" />
+                          </svg>
+                        ) : item.icon === "shield-check" ? (
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.8"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="h-5 w-5"
+                          >
+                            <path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z" />
+                            <path d="m9 12 2 2 4-4" />
+                          </svg>
+                        ) : (
+                          <span className="text-lg">{item.icon}</span>
+                        )}
                       </span>
 
+                      {/* MENU NAME */}
                       <span className="text-sm font-medium">{item.name}</span>
 
+                      {/* GOLD STATUS DOT */}
                       {active && (
-                        <span className="ml-auto h-1.5 w-1.5 rounded-full bg-[#D4A72C]" />
+                        <span className="ml-auto h-2 w-2 rounded-full bg-[#D4A72C] shadow-[0_0_10px_rgba(212,167,44,0.8)]" />
                       )}
                     </Link>
                   );
