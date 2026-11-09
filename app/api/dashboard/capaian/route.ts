@@ -233,6 +233,10 @@ async function getSummary(year: number | null) {
       COUNT(*) FILTER (
         WHERE UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
       )::int AS masuk_saldo,
+      COUNT(*) FILTER (
+        WHERE UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
+          AND UPPER(TRIM(COALESCE(follow_up_status, ''))) = 'BELUM_TL'
+      )::int AS masuk_belum_tl,
       
       COUNT(*) FILTER (
         WHERE UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
@@ -340,34 +344,43 @@ export async function GET(request: Request) {
     const tlSudahTuntas = Number(summary?.tl_sudah_tuntas ?? 0);
 
     // =====================================================
-    // PERHITUNGAN CAPAIAN TRIWULAN
-    // =====================================================
-
-    // =====================================================
     // PERHITUNGAN 4 TRIWULAN
-    // Menggunakan seluruh data rekomendasi dashboard.
+    // KHUSUS REKOMENDASI MASUK SALDO
     // Setiap triwulan memiliki rumus tersendiri.
     // =====================================================
 
+    const saldoMasukTriwulan = Number(summary?.masuk_saldo ?? 0);
+    const belumTLMasukTriwulan = Number(summary?.masuk_belum_tl ?? 0);
+
+    const tlBelumTuntasMasukTriwulan = Number(
+      summary?.masuk_tl_belum_tuntas ?? 0
+    );
+
+    const tlSudahTuntasMasukTriwulan = Number(
+      summary?.masuk_tl_sudah_tuntas ?? 0
+    );
+
+    // Menghitung capaian dasar khusus rekomendasi masuk saldo.
     const rumusDasar =
       String(rumusTersimpan?.rumus_capaian ?? "").trim() ||
       RUMUS_CAPAIAN_DEFAULT;
 
     const capaianDasar =
-      saldo > 0
+      saldoMasukTriwulan > 0
         ? hitungRumusIndeks(normalizePercentLiterals(rumusDasar), {
             capaian: 0,
-            saldo,
-            belum_tl: belumTL,
-            tl_belum_tuntas: tlBelumTuntas,
-            tl_sudah_tuntas: tlSudahTuntas,
+            saldo: saldoMasukTriwulan,
+            belum_tl: belumTLMasukTriwulan,
+            tl_belum_tuntas: tlBelumTuntasMasukTriwulan,
+            tl_sudah_tuntas: tlSudahTuntasMasukTriwulan,
           })
         : 0;
 
     if (!Number.isFinite(capaianDasar)) {
-      throw new Error("Capaian dasar tidak valid.");
+      throw new Error("Capaian dasar triwulan tidak valid.");
     }
 
+    // Menghitung masing-masing triwulan menggunakan rumus tersimpan.
     const triwulanData = ([1, 2, 3, 4] as const).map((quarter) => {
       const rumusKey = `rumus_triwulan_${quarter}` as
         | "rumus_triwulan_1"
@@ -380,13 +393,13 @@ export async function GET(request: Request) {
         RUMUS_TRIWULAN_DEFAULT;
 
       const capaian =
-        saldo > 0
+        saldoMasukTriwulan > 0
           ? hitungRumusIndeks(normalizePercentLiterals(rumus), {
               capaian: capaianDasar,
-              saldo,
-              belum_tl: belumTL,
-              tl_belum_tuntas: tlBelumTuntas,
-              tl_sudah_tuntas: tlSudahTuntas,
+              saldo: saldoMasukTriwulan,
+              belum_tl: belumTLMasukTriwulan,
+              tl_belum_tuntas: tlBelumTuntasMasukTriwulan,
+              tl_sudah_tuntas: tlSudahTuntasMasukTriwulan,
             })
           : 0;
 
@@ -400,10 +413,10 @@ export async function GET(request: Request) {
         capaian_persen: capaian * 100,
         capaian_dasar: capaianDasar,
         rumus,
-        total_rekomendasi: saldo,
-        belum_tl: belumTL,
-        tl_belum_tuntas: tlBelumTuntas,
-        tl_sudah_tuntas: tlSudahTuntas,
+        total_rekomendasi: saldoMasukTriwulan,
+        belum_tl: belumTLMasukTriwulan,
+        tl_belum_tuntas: tlBelumTuntasMasukTriwulan,
+        tl_sudah_tuntas: tlSudahTuntasMasukTriwulan,
       };
     });
     // Capaian Otomatis dihitung berdasarkan seluruh rekomendasi.

@@ -1098,90 +1098,6 @@ export default function DashboardPage() {
                 </div>
               </div>
             </div>
-            {/* HASIL CAPAIAN TRIWULAN */}
-            <div className="grid grid-cols-2 gap-3">
-              {([1, 2, 3, 4] as const).map((quarter) => {
-                const item = capaianData?.triwulan?.find(
-                  (data) => data.nomor === quarter
-                );
-
-                const percent = safeNumber(item?.capaian_persen);
-
-                const progress = Math.min(100, Math.max(0, percent));
-
-                return (
-                  <div
-                    key={quarter}
-                    className="relative overflow-hidden rounded-2xl border border-blue-200/70 bg-gradient-to-br from-white via-white to-sky-50 p-4 shadow-xl transition hover:shadow-2xl"
-                  >
-                    <div className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-blue-500/10 blur-2xl" />
-
-                    <div className="relative z-10">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-blue-700">
-                          Triwulan
-                        </span>
-
-                        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 font-bold text-blue-700">
-                          {quarter}
-                        </span>
-                      </div>
-
-                      <h3 className="mt-3 text-base font-bold text-[#071426]">
-                        Triwulan {quarter}
-                      </h3>
-
-                      <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        Hasil Capaian
-                      </p>
-
-                      <p className="mt-1 text-2xl font-extrabold text-blue-600">
-                        {loading
-                          ? "—"
-                          : `${percent.toLocaleString("id-ID", {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}%`}
-                      </p>
-
-                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-blue-700 to-cyan-400 transition-all duration-700"
-                          style={{
-                            width: `${loading ? 0 : progress}%`,
-                          }}
-                        />
-                      </div>
-
-                      <div className="mt-3 rounded-lg border border-slate-100 bg-white/90 p-2">
-                        <p className="text-[10px] text-slate-400">
-                          Total Rekomendasi
-                        </p>
-
-                        <p className="text-lg font-bold text-[#071426]">
-                          {loading ? "—" : item?.total_rekomendasi ?? 0}
-                        </p>
-                      </div>
-
-                      <button
-                        type="button"
-                        disabled={savingRumus || loading}
-                        onClick={() => {
-                          setSelectedTriwulan(quarter);
-
-                          setRumusTriwulan(
-                            item?.rumus ?? "min(capaian / 81 * 100, 120%)"
-                          );
-                        }}
-                        className="mt-3 w-full rounded-lg border border-blue-200 bg-white px-2 py-2 text-[10px] font-bold text-blue-700 transition hover:bg-blue-50 disabled:opacity-50"
-                      >
-                        Atur Rumus
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
           </div>
         </section>
 
@@ -1201,85 +1117,7 @@ export default function DashboardPage() {
               BPK dan ITJEN.
             </p>
           </div>
-          {/* INDEKS CAPAIAN */}
-          <div className="relative overflow-hidden rounded-2xl border border-amber-200/70 bg-gradient-to-br from-white via-white to-amber-50 p-6 shadow-xl transition duration-300 hover:shadow-2xl">
-            {/* AKSEN DEKORATIF */}
-            <div className="pointer-events-none absolute -right-10 -top-12 h-40 w-40 rounded-full bg-[#D4A72C]/10 blur-2xl" />
 
-            <div className="relative z-10 flex h-full flex-col justify-between gap-7">
-              {/* HEADER */}
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div className="min-w-0 flex-1">
-                  <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1">
-                    <span className="h-2 w-2 rounded-full bg-[#D4A72C]" />
-
-                    <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#9B7518]">
-                      Capaian Indeks
-                    </span>
-                  </div>
-
-                  <h3 className="text-lg font-bold tracking-tight text-[#071426]">
-                    Persentase Indeks Capaian Tindak Lanjut
-                  </h3>
-
-                  <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
-                    Hasil Perhitungan Rekomendasi yang Masuk Saldo & Belum Masuk
-                    Saldo
-                  </p>
-                </div>
-
-                {/* NILAI INDEKS */}
-                {/* PENGATURAN DAN NILAI INDEKS */}
-                <div className="flex shrink-0 flex-col items-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowIndeksRumusModal(true)}
-                    disabled={savingRumus}
-                    className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs font-semibold text-amber-700 transition hover:bg-amber-50 disabled:opacity-50"
-                  >
-                    Atur Rumus
-                  </button>
-
-                  <div className="min-w-[112px] rounded-2xl border border-amber-200/80 bg-white/90 px-4 py-3 shadow-sm">
-                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
-                      Nilai Indeks
-                    </p>
-
-                    <p className="mt-1 text-3xl font-extrabold tracking-tight text-[#9B7518]">
-                      {loading ? "—" : `${indeksCapaianPersen}%`}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* PROGRESS INDEKS */}
-              <div>
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <span className="text-xs font-semibold text-slate-600">
-                    Progres Indeks
-                  </span>
-
-                  <span className="rounded-full bg-amber-100 px-3 py-1 text-[10px] font-bold text-[#8A6810]">
-                    Skala 0–120%
-                  </span>
-                </div>
-
-                <div className="h-3 overflow-hidden rounded-full bg-slate-200/80 p-[2px]">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-[#B88912] via-[#D4A72C] to-[#F0C85A] transition-all duration-700 ease-out"
-                    style={{
-                      width: `${(indeksCapaianBar / 120) * 100}%`,
-                    }}
-                  />
-                </div>
-
-                <div className="mt-2 flex justify-between text-[10px] font-medium text-slate-400">
-                  <span>0%</span>
-                  <span>120%</span>
-                </div>
-              </div>
-            </div>
-          </div>
           {/* GRID EMPAT KARTU */}
           <div className="mt-6 grid grid-cols-1 items-stretch gap-5 sm:grid-cols-2 xl:grid-cols-3">
             {/* MASUK SALDO */}
@@ -1383,6 +1221,90 @@ export default function DashboardPage() {
             </div>
           </div>
         </section>
+        {/* HASIL CAPAIAN TRIWULAN */}
+        <div className="grid grid-cols-2 gap-3">
+          {([1, 2, 3, 4] as const).map((quarter) => {
+            const item = capaianData?.triwulan?.find(
+              (data) => data.nomor === quarter
+            );
+
+            const percent = safeNumber(item?.capaian_persen);
+
+            const progress = Math.min(100, Math.max(0, percent));
+
+            return (
+              <div
+                key={quarter}
+                className="relative overflow-hidden rounded-2xl border border-blue-200/70 bg-gradient-to-br from-white via-white to-sky-50 p-4 shadow-xl transition hover:shadow-2xl"
+              >
+                <div className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-blue-500/10 blur-2xl" />
+
+                <div className="relative z-10">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-blue-700">
+                      Triwulan
+                    </span>
+
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 font-bold text-blue-700">
+                      {quarter}
+                    </span>
+                  </div>
+
+                  <h3 className="mt-3 text-base font-bold text-[#071426]">
+                    Triwulan {quarter}
+                  </h3>
+
+                  <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Hasil Capaian
+                  </p>
+
+                  <p className="mt-1 text-2xl font-extrabold text-blue-600">
+                    {loading
+                      ? "—"
+                      : `${percent.toLocaleString("id-ID", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}%`}
+                  </p>
+
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-blue-700 to-cyan-400 transition-all duration-700"
+                      style={{
+                        width: `${loading ? 0 : progress}%`,
+                      }}
+                    />
+                  </div>
+
+                  <div className="mt-3 rounded-lg border border-slate-100 bg-white/90 p-2">
+                    <p className="text-[10px] text-slate-400">
+                      Total Rekomendasi
+                    </p>
+
+                    <p className="text-lg font-bold text-[#071426]">
+                      {loading ? "—" : item?.total_rekomendasi ?? 0}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={savingRumus || loading}
+                    onClick={() => {
+                      setSelectedTriwulan(quarter);
+
+                      setRumusTriwulan(
+                        item?.rumus ?? "min(capaian / 81 * 100, 120%)"
+                      );
+                    }}
+                    className="mt-3 w-full rounded-lg border border-blue-200 bg-white px-2 py-2 text-[10px] font-bold text-blue-700 transition hover:bg-blue-50 disabled:opacity-50"
+                  >
+                    Atur Rumus
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
 
         {/* BPK */}
         <section className="mb-6">
