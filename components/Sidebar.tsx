@@ -11,70 +11,105 @@ type SidebarProps = {
 const menuGroups = [
   {
     title: "OVERVIEW",
-    items: [
-      {
-        name: "Dashboard",
-        href: "/dashboard",
-        icon: "⌂",
-      },
-    ],
+    items: [{ name: "Dashboard", href: "/dashboard", icon: "dashboard" }],
   },
   {
     title: "PEMERIKSAAN",
     items: [
-      {
-        name: "BPK",
-        href: "/bpk",
-        icon: "landmark",
-      },
-      {
-        name: "Itjen",
-        href: "/itjen",
-        icon: "shield-check",
-      },
+      { name: "BPK", href: "/bpk", icon: "landmark" },
+      { name: "Itjen", href: "/itjen", icon: "shield" },
     ],
   },
   {
     title: "DATA MANAGEMENT",
     items: [
-      {
-        name: "Rekomendasi",
-        href: "/rekomendasi",
-        icon: "☷",
-      },
-      {
-        name: "Laporan",
-        href: "/laporan",
-        icon: "▤",
-      },
+      { name: "Rekomendasi", href: "/rekomendasi", icon: "list" },
+      { name: "Laporan", href: "/laporan", icon: "report" },
     ],
   },
-];
+] as const;
+
+type IconName = "dashboard" | "landmark" | "shield" | "list" | "report";
+
+function MenuIcon({ name }: { name: IconName }) {
+  const props = {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.7,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    className: "h-[19px] w-[19px]",
+  };
+
+  switch (name) {
+    case "dashboard":
+      return (
+        <svg {...props}>
+          <rect x="3" y="3" width="7" height="7" rx="1" />
+          <rect x="14" y="3" width="7" height="7" rx="1" />
+          <rect x="3" y="14" width="7" height="7" rx="1" />
+          <rect x="14" y="14" width="7" height="7" rx="1" />
+        </svg>
+      );
+
+    case "landmark":
+      return (
+        <svg {...props}>
+          <path d="M3 9h18L12 3 3 9Z" />
+          <path d="M5 10v9M9 10v9M15 10v9M19 10v9" />
+          <path d="M3 19h18M2 22h20" />
+        </svg>
+      );
+
+    case "shield":
+      return (
+        <svg {...props}>
+          <path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z" />
+          <path d="m9 12 2 2 4-4" />
+        </svg>
+      );
+
+    case "list":
+      return (
+        <svg {...props}>
+          <rect x="4" y="3" width="16" height="18" rx="1.5" />
+          <path d="M8 8h8M8 12h8M8 16h8" />
+        </svg>
+      );
+
+    case "report":
+      return (
+        <svg {...props}>
+          <path d="M6 3h9l4 4v14H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" />
+          <path d="M14 3v5h5M8 13h8M8 17h8" />
+        </svg>
+      );
+  }
+}
 
 export default function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
 
   const handleLogout = () => {
-    // Hapus token/session yang mungkin digunakan
     localStorage.removeItem("token");
     localStorage.removeItem("access_token");
     localStorage.removeItem("auth_token");
     localStorage.removeItem("user");
 
-    // Tutup sidebar
     onClose();
-
-    // Arahkan ke halaman login
     router.push("/login");
   };
 
   return (
     <>
       {/* OVERLAY */}
-      <div
+      <button
+        type="button"
+        aria-label="Tutup sidebar"
         onClick={onClose}
-        className={`fixed inset-0 z-[90] bg-[#071426]/50 backdrop-blur-sm transition-opacity duration-300 ${
+        className={`fixed inset-0 z-[90] bg-black/50 backdrop-blur-[2px] transition-opacity duration-200 ${
           open
             ? "pointer-events-auto opacity-100"
             : "pointer-events-none opacity-0"
@@ -83,114 +118,86 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
 
       {/* SIDEBAR */}
       <aside
-        className={`fixed left-0 top-0 z-[100] flex h-screen w-[290px] flex-col bg-[#071426] text-white shadow-2xl transition-transform duration-300 ease-out ${
+        className={`fixed left-0 top-0 z-[100] flex h-dvh w-[290px] flex-col border-r border-[#24364D] bg-[#09182B] text-white shadow-2xl transition-transform duration-300 ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
         {/* HEADER */}
-        <div className="relative border-b border-white/10 px-6 py-6">
-          <div className="absolute left-0 top-0 h-full w-1 bg-[#D4A72C]" />
-
+        <div className="border-b border-[#24364D] px-5 py-5">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#D4A72C]/40 bg-[#D4A72C]/10">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#B9943C] bg-[#142B46]">
                 <span className="text-sm font-bold text-[#D4A72C]">APF</span>
               </div>
 
               <div>
-                <h1 className="text-lg font-bold tracking-wide">APF</h1>
-
-                <p className="text-[10px] font-medium tracking-[0.2em] text-[#D4A72C]">
+                <h1 className="text-base font-bold tracking-wide text-white">
+                  APF
+                </h1>
+                <p className="mt-0.5 text-[9px] font-semibold tracking-[0.16em] text-[#D4A72C]">
                   COMMAND CENTER
                 </p>
               </div>
             </div>
 
-            {/* CLOSE */}
             <button
               type="button"
               onClick={onClose}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-xl text-slate-400 transition hover:bg-white/10 hover:text-white"
+              aria-label="Tutup sidebar"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-lg text-slate-400 transition hover:bg-white/10 hover:text-white"
             >
               ×
             </button>
           </div>
 
-          <p className="mt-5 text-xs text-slate-400">
+          <p className="mt-5 text-[11px] text-slate-400">
             Bea Cukai Soekarno-Hatta
           </p>
         </div>
 
-        {/* MENU */}
+        {/* NAVIGATION */}
         <nav className="flex-1 overflow-y-auto px-4 py-6">
-          {menuGroups.map((group) => (
-            <div key={group.title} className="mb-7">
-              <p className="mb-3 px-3 text-[10px] font-bold tracking-[0.18em] text-slate-500">
+          {menuGroups.map((group, index) => (
+            <div key={group.title} className={index > 0 ? "mt-8" : ""}>
+              <p className="mb-3 px-3 text-[10px] font-semibold tracking-[0.16em] text-slate-500">
                 {group.title}
               </p>
 
               <div className="space-y-1">
                 {group.items.map((item) => {
-                  const active = pathname === item.href;
+                  const active =
+                    pathname === item.href ||
+                    (item.href !== "/dashboard" &&
+                      pathname.startsWith(`${item.href}/`));
 
                   return (
                     <Link
                       key={item.name}
                       href={item.href}
                       onClick={onClose}
-                      className={`group relative flex items-center gap-3 rounded-2xl border px-4 py-3 transition-all duration-300 ${
+                      aria-current={active ? "page" : undefined}
+                      className={`relative flex items-center gap-3 rounded-lg border-l-[3px] px-3 py-3 transition-colors duration-200 ${
                         active
-                          ? "border-[#D4A72C]/40 bg-gradient-to-r from-[#D4A72C]/20 via-[#D4A72C]/10 to-[#D4A72C]/5 text-white shadow-[0_0_20px_rgba(212,167,44,0.10)]"
-                          : "border-transparent text-slate-400 hover:border-white/10 hover:bg-white/[0.05] hover:text-white"
+                          ? "border-[#D4A72C] bg-[#142B46] text-white"
+                          : "border-transparent text-slate-400 hover:bg-white/[0.05] hover:text-white"
                       }`}
                     >
-                      {/* GOLD ACTIVE INDICATOR */}
-                      {active && (
-                        <span className="absolute left-0 top-1/2 h-9 w-1 -translate-y-1/2 rounded-r-full bg-[#D4A72C] shadow-[0_0_12px_rgba(212,167,44,0.8)]" />
-                      )}
-
-                      {/* ICON */}
                       <span
-                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition-all ${
+                        className={`flex h-9 w-9 items-center justify-center rounded-lg ${
                           active
-                            ? "border-[#D4A72C]/40 bg-[#D4A72C]/20 text-[#D4A72C]"
-                            : "border-white/5 bg-white/[0.04] text-slate-400 group-hover:bg-white/10 group-hover:text-white"
+                            ? "bg-[#203C5B] text-[#D4A72C]"
+                            : "bg-[#12243A] text-slate-400"
                         }`}
                       >
-                        {item.icon === "landmark" ? (
-                          <svg
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.8"
-                            className="h-5 w-5"
-                          >
-                            <path d="M3 10h18M5 10v9M9 10v9M15 10v9M19 10v9M3 19h18M2 21h20M12 3 2 8h20L12 3Z" />
-                          </svg>
-                        ) : item.icon === "shield-check" ? (
-                          <svg
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.8"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            className="h-5 w-5"
-                          >
-                            <path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z" />
-                            <path d="m9 12 2 2 4-4" />
-                          </svg>
-                        ) : (
-                          <span className="text-lg">{item.icon}</span>
-                        )}
+                        <MenuIcon name={item.icon} />
                       </span>
 
-                      {/* MENU NAME */}
-                      <span className="text-sm font-medium">{item.name}</span>
+                      <span className="flex-1 text-[13px] font-medium">
+                        {item.name}
+                      </span>
 
-                      {/* GOLD STATUS DOT */}
                       {active && (
-                        <span className="ml-auto h-2 w-2 rounded-full bg-[#D4A72C] shadow-[0_0_10px_rgba(212,167,44,0.8)]" />
+                        <span className="h-1.5 w-1.5 rounded-full bg-[#D4A72C]" />
                       )}
                     </Link>
                   );
@@ -201,64 +208,65 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
         </nav>
 
         {/* SYSTEM STATUS */}
-        <div className="px-5 pb-4">
-          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+        <div className="px-4 pb-4">
+          <div className="rounded-xl border border-[#2B4055] bg-[#102139] px-3 py-3">
             <div className="flex items-center gap-3">
-              <span className="relative flex h-3 w-3">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-50" />
+              <span className="h-2.5 w-2.5 rounded-full bg-green-500" />
 
-                <span className="relative inline-flex h-3 w-3 rounded-full bg-green-500" />
-              </span>
-
-              <div>
-                <p className="text-xs font-semibold text-white">
+              <div className="flex-1">
+                <p className="text-[11px] font-semibold text-white">
                   System Online
                 </p>
-
-                <p className="text-[10px] text-slate-500">
+                <p className="mt-0.5 text-[9px] text-slate-400">
                   Data monitoring aktif
                 </p>
               </div>
+
+              <span className="text-[9px] text-green-400">Aktif</span>
             </div>
           </div>
         </div>
 
-        {/* ADMIN */}
-        <div className="border-t border-white/10 p-5">
-          <div className="rounded-xl bg-white/[0.04] p-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-[#D4A72C]/40 bg-white shadow-lg">
-                <img
-                  src="/logobeacukai2.png"
-                  alt="Logo Bea Cukai"
-                  className="h-full w-full object-contain p-1"
-                />
-              </div>
-
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-white">
-                  Administrator
-                </p>
-
-                <p className="text-[11px] text-slate-500">
-                  Admin APF Bea Cukai
-                </p>
-              </div>
+        {/* ADMIN PROFILE */}
+        <div className="border-t border-[#24364D] p-4">
+          <div className="flex items-center gap-3 px-1 py-2">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#D4A72C]/50 bg-white">
+              <img
+                src="/logobeacukai2.png"
+                alt="Logo Bea Cukai"
+                className="h-full w-full object-contain p-1"
+              />
             </div>
 
-            {/* LOGOUT */}
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="mt-3 flex w-full items-center gap-3 rounded-lg border border-red-400/10 bg-red-500/5 px-3 py-2.5 text-left text-sm font-medium text-red-400 transition hover:bg-red-500/10 hover:text-red-300"
-            >
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-500/10 text-base">
-                ⇥
-              </span>
-
-              <span>Logout</span>
-            </button>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-semibold text-white">
+                Administrator
+              </p>
+              <p className="mt-1 text-[10px] text-slate-400">
+                Admin APF Bea Cukai
+              </p>
+            </div>
           </div>
+
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="mt-3 flex w-full items-center gap-3 rounded-lg border border-red-500/15 px-3 py-2.5 text-left text-xs font-medium text-red-400 transition hover:bg-red-500/[0.08]"
+          >
+            <svg
+              className="h-4 w-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M10 17l5-5-5-5M15 12H3" />
+              <path d="M12 3h6a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-6" />
+            </svg>
+            Logout
+          </button>
         </div>
       </aside>
     </>

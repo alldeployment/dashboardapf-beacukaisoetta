@@ -278,91 +278,68 @@ export default function ItjenPage() {
 
   return (
     <main className="min-h-screen bg-[#F4F7FB] text-slate-800">
-      {/* HEADER */}
-      <section className="relative overflow-hidden bg-[#071426]">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#D4A72C]/50 bg-[#071426] shadow-lg">
-          <svg
-            className="h-6 w-6 text-[#D4A72C]"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M12 3L20 6V11C20 16 16.5 19.5 12 21C7.5 19.5 4 16 4 11V6L12 3Z" />
-            <path d="M9 12L11 14L15 10" />
-          </svg>
-        </div>
-        <div className="absolute inset-0 bg-gradient-to-r from-[#071426] via-[#071426]/95 to-[#071426]/70" />
+      {/* TOP HEADER */}
+      <section className="relative overflow-hidden bg-[#071426] px-6 py-8 lg:px-10">
+        <div className="absolute -right-20 -top-32 h-80 w-80 rounded-full bg-[#D4A72C]/10 blur-3xl" />
+        <div className="absolute -bottom-40 left-1/3 h-72 w-72 rounded-full bg-blue-500/10 blur-3xl" />
 
-        <div className="relative mx-auto max-w-[1600px] px-6 py-9 lg:px-10 lg:py-10">
-          <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
+        <div className="relative mx-auto max-w-[1600px]">
+          <div className="flex flex-col justify-between gap-7 xl:flex-row xl:items-end">
             <div>
-              <div className="mb-5 flex items-center gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#D4A72C]/50 bg-[#071426] shadow-lg">
-                  <svg
-                    className="h-6 w-6 text-[#D4A72C]"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M12 3L20 6V11C20 16 16.5 19.5 12 21C7.5 19.5 4 16 4 11V6L12 3Z" />
-                    <path d="M9 12L11 14L15 10" />
-                  </svg>
+              <div className="mb-4 flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-[#D4A72C]/30 bg-[#D4A72C]/10">
+                  <img
+                    src="/logobeacukai2.png"
+                    alt="Logo Bea Cukai"
+                    className="h-7 w-7 object-contain"
+                  />
                 </div>
+
                 <div>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-[#D4A72C]">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#D4A72C]">
                     APF Monitoring Center
                   </p>
-                  <p className="mt-1 text-xs text-slate-300">
+
+                  <p className="mt-1 text-xs text-slate-400">
                     Bea Cukai Soekarno-Hatta
                   </p>
                 </div>
               </div>
 
-              <h1 className="text-4xl font-bold tracking-tight text-white lg:text-5xl">
+              <h1 className="text-3xl font-bold tracking-tight text-white md:text-4xl">
                 Monitoring Itjen
               </h1>
-              <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-300 lg:text-base">
+
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
                 Monitoring tindak lanjut rekomendasi hasil pemeriksaan
                 Inspektorat Jenderal pada Bea Cukai Soekarno-Hatta.
               </p>
             </div>
 
-            <div className="flex items-center gap-3">
-              <div className="flex h-14 items-center gap-3 rounded-xl border border-slate-700 bg-[#0b1b30]/80 px-5">
-                <span className="h-2.5 w-2.5 rounded-full bg-green-400 shadow-[0_0_12px_rgba(74,222,128,0.8)]" />
+            <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
+              <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-60" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-400" />
+                </span>
+
                 <div>
-                  <p className="text-[9px] uppercase tracking-widest text-slate-500">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
                     System Status
                   </p>
-                  <p className="text-sm font-semibold text-white">Online</p>
+
+                  <p className="text-xs font-semibold text-white">Online</p>
                 </div>
               </div>
 
               <button
                 onClick={() => void loadData()}
                 disabled={loading}
-                className="flex h-14 items-center gap-2 rounded-xl bg-[#D4A72C] px-5 text-sm font-bold text-[#071426] shadow-lg transition hover:bg-[#e5ba45] disabled:cursor-not-allowed disabled:opacity-70"
+                className="inline-flex items-center gap-2 rounded-xl border border-[#D4A72C]/40 bg-[#D4A72C] px-5 py-3 text-sm font-bold text-[#071426] shadow-lg shadow-black/10 transition hover:bg-[#e5ba45] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <svg
-                  className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 4v5h5M20 20v-5h-5M5.64 9A7 7 0 0118.36 6M18.36 15A7 7 0 015.64 18"
-                  />
-                </svg>
-                Refresh Data
+                <span className={loading ? "animate-spin" : ""}>↻</span>
+
+                {loading ? "Memuat..." : "Refresh Data"}
               </button>
             </div>
           </div>
