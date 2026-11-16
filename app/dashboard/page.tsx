@@ -56,6 +56,7 @@ type Recommendation = {
   uic?: string | null;
   tindak_lanjut?: string | null;
   capaian?: number | null;
+  triwulan?: number | null;
 };
 type TriwulanResult = {
   nomor: number;
@@ -66,6 +67,7 @@ type TriwulanResult = {
   belum_tl: number;
   tl_belum_tuntas: number;
   tl_sudah_tuntas: number;
+  total_masuk_saldo?: number;
 };
 export default function DashboardPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -122,6 +124,7 @@ export default function DashboardPage() {
   const [deletingSaldoId, setDeletingSaldoId] = useState<number | null>(null);
 
   const [savingRumus, setSavingRumus] = useState(false);
+
   const [selectedTriwulan, setSelectedTriwulan] = useState<
     1 | 2 | 3 | 4 | null
   >(null);
@@ -349,6 +352,7 @@ export default function DashboardPage() {
       setSavingRumus(false);
     }
   }
+
   const safeNumber = (value: unknown): number => {
     const number = Number(value);
 
@@ -759,6 +763,7 @@ export default function DashboardPage() {
           tindak_lanjut: item.tindak_lanjut ?? "",
           followUpStatus: item.follow_up_status,
           saldoStatus: item.saldo_status,
+          triwulan: Number(item.triwulan),
         }),
       });
 
@@ -2683,7 +2688,26 @@ export default function DashboardPage() {
                     <option value="TIDAK_RELEVAN">Tidak Relevan</option>
                   </select>
                 </div>
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-slate-700">
+                    Triwulan
+                  </label>
 
+                  <select
+                    required
+                    value={editingSaldoRecommendation.triwulan ?? ""}
+                    onChange={(e) =>
+                      updateSaldoEdit("triwulan", Number(e.target.value))
+                    }
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-800"
+                  >
+                    <option value="">Pilih Triwulan</option>
+                    <option value="1">Triwulan 1</option>
+                    <option value="2">Triwulan 2</option>
+                    <option value="3">Triwulan 3</option>
+                    <option value="4">Triwulan 4</option>
+                  </select>
+                </div>
                 {(
                   [
                     ["temuan", "Temuan"],

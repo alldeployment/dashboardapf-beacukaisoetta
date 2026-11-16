@@ -33,6 +33,8 @@ type Recommendation = {
   tindak_lanjut?: string | null;
 
   created_at?: string;
+  triwulan?: number;
+  folder_triwulan?: number;
 };
 
 type Summary = {
@@ -66,6 +68,8 @@ type LhpFolder = {
   lha_date: string;
   items: Recommendation[];
   capaian: number;
+  activeQuarter?: number;
+  selectedQuarter?: number;
 };
 type DocumentFile = {
   id: number;
@@ -512,7 +516,11 @@ export default function RekomendasiPage() {
     const map = new Map<string, Recommendation[]>();
 
     filteredData.forEach((item) => {
-      const key = item.lha_number?.trim() || `LHA-TANPA-NOMOR-${item.id}`;
+      const key = [
+        item.source,
+        item.category,
+        item.lha_number?.trim() || `LHA-TANPA-NOMOR-${item.id}`,
+      ].join("||");
 
       const existing = map.get(key) ?? [];
 
@@ -538,12 +546,14 @@ export default function RekomendasiPage() {
       const first = sortedItems[0];
 
       return {
-        lha_number: key.startsWith("LHA-TANPA-NOMOR-") ? first.lha_number : key,
+        lha_number: first.lha_number,
         source: first.source,
         category: first.category,
         lha_date: first.lha_date,
         items: sortedItems,
         capaian: folderCapaian,
+        activeQuarter: Number(first.folder_triwulan ?? first.triwulan ?? 1),
+        selectedQuarter: Number(first.folder_triwulan ?? first.triwulan ?? 1),
       };
     });
   }, [filteredData]);
@@ -672,6 +682,114 @@ export default function RekomendasiPage() {
    */
   function openFolder(folder: LhpFolder) {
     setDetailFolder(folder);
+  }
+
+  async function selectFolderQuarter(quarter: number) {
+    if (!detailFolder) return;
+
+    const activeQuarter = Number(detailFolder.activeQuarter ?? 1);
+
+    if (quarter < 1 || quarter > 4) {
+      alert("Triwulan harus berada antara TW1 sampai TW4.");
+      return;
+    }
+
+    if (quarter === activeQuarter) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Ubah triwulan aktif folder ${detailFolder.lha_number} dari TW${activeQuarter} menjadi TW${quarter}?\n\nRiwayat setelah TW${quarter} akan dihapus dan dapat dibentuk kembali melalui proses perpindahan otomatis.\n\nLanjutkan?`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      // 1. Ubah triwulan aktif folder melalui API PATCH.
+      const patchResponse = await fetch("/api/recommendations", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          source: detailFolder.source,
+          category: detailFolder.category,
+          lhaNumber: detailFolder.lha_number,
+          tahun_periode: selectedYear,
+          triwulan: quarter,
+        }),
+      });
+
+      const patchResult = await readApiJson(patchResponse);
+
+      if (!patchResponse.ok || patchResult?.ok === false) {
+        throw new Error(patchResult?.message || "Gagal mengubah triwulan.");
+      }
+
+      // 2. Ambil kembali data rekomendasi pada triwulan tujuan.
+      const query = `?year=${selectedYear}&triwulan=${quarter}`;
+
+      const response = await fetch(`/api/recommendations${query}`, {
+        cache: "no-store",
+      });
+
+      const result = await readApiJson(response);
+
+      if (!response.ok) {
+        throw new Error(
+          result?.message || "Gagal mengambil data triwulan terbaru."
+        );
+      }
+
+      const rows = Array.isArray(result)
+        ? result
+        : result.data ?? result.recommendations ?? [];
+
+      const folderItems = rows.filter(
+        (item: Recommendation) =>
+          item.source === detailFolder.source &&
+          item.category === detailFolder.category &&
+          item.lha_number === detailFolder.lha_number
+      );
+
+      const sortedItems = [...folderItems].sort(
+        (a, b) => a.recommendation_number - b.recommendation_number
+      );
+
+      const capaian =
+        sortedItems.length > 0
+          ? sortedItems.reduce(
+              (total, item) => total + Number(item.capaian || 0),
+              0
+            ) / sortedItems.length
+          : 0;
+
+      // 3. Perbarui tampilan detail folder.
+      setDetailFolder((prev) =>
+        prev
+          ? {
+              ...prev,
+              items: sortedItems,
+              capaian,
+              selectedQuarter: quarter,
+              activeQuarter: quarter,
+            }
+          : prev
+      );
+
+      // 4. Perbarui tabel dan ringkasan dashboard.
+      await loadData(true);
+
+      alert(`Triwulan aktif folder berhasil diubah menjadi TW${quarter}.`);
+    } catch (error) {
+      console.error("Gagal mengubah triwulan folder:", error);
+
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Terjadi kesalahan saat mengubah triwulan folder."
+      );
+    }
   }
 
   function closeFolder() {
@@ -1040,7 +1158,7 @@ export default function RekomendasiPage() {
                 <tbody>
                   {groupedFolders.map((folder, index) => (
                     <tr
-                      key={`${folder.source}-${folder.lha_number}`}
+                      key={`${folder.source}-${folder.category}-${folder.lha_number}-${index}`}
                       onClick={() => openFolder(folder)}
                       className="cursor-pointer border-b border-slate-100 transition hover:bg-blue-50/50"
                     >
@@ -1226,6 +1344,41 @@ export default function RekomendasiPage() {
               </div>
 
               {/* CAPAIAN FOLDER */}
+
+              <div className="mt-6">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                  <div>
+                    <h3 className="font-semibold text-slate-800">
+                      Riwayat Triwulan
+                    </h3>
+                    <p className="text-sm text-slate-500">
+                      Triwulan aktif folder: TW{detailFolder.activeQuarter}
+                    </p>
+                  </div>
+
+                  <span className="text-sm text-slate-500">
+                    Sedang melihat: TW{detailFolder.selectedQuarter}
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {[1, 2, 3, 4].map((quarter) => (
+                    <button
+                      key={quarter}
+                      type="button"
+                      onClick={() => selectFolderQuarter(quarter)}
+                      className={`px-5 py-2 rounded-lg text-sm font-semibold border transition ${
+                        detailFolder.selectedQuarter === quarter
+                          ? "bg-[#071426] text-white border-[#071426]"
+                          : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+                      }`}
+                    >
+                      TW{quarter}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="rounded-2xl border border-blue-100 bg-blue-50 p-5">
                 <div className="flex items-center justify-between gap-4">
                   <div>
@@ -1270,13 +1423,16 @@ export default function RekomendasiPage() {
                     </p>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => openAddRecommendationForm(detailFolder)}
-                    className="shrink-0 rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700"
-                  >
-                    + Tambah Rekomendasi
-                  </button>
+                  {detailFolder.selectedQuarter ===
+                    detailFolder.activeQuarter && (
+                    <button
+                      type="button"
+                      onClick={() => openAddRecommendationForm(detailFolder)}
+                      className="shrink-0 rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700"
+                    >
+                      + Tambah Rekomendasi
+                    </button>
+                  )}
 
                   <p className="text-sm text-slate-500">
                     Nilai capaian rekomendasi ditampilkan sebagai bagian dari
@@ -1385,26 +1541,28 @@ export default function RekomendasiPage() {
                           lhaDate={detailFolder.lha_date}
                           recommendationId={item.id}
                         />
-                        {/* AKSI */}
-                        <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4">
-                          {/* Edit tersedia untuk semua status */}
-                          <button
-                            type="button"
-                            onClick={() => editData(item)}
-                            className="rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-bold text-blue-600 transition hover:bg-blue-100"
-                          >
-                            Edit
-                          </button>
 
-                          {/* Hapus tetap tersedia */}
-                          <button
-                            type="button"
-                            onClick={() => deleteData(item)}
-                            className="rounded-xl border border-red-200 px-4 py-2 text-xs font-bold text-red-600 hover:bg-red-50"
-                          >
-                            Hapus
-                          </button>
-                        </div>
+                        {/* AKSI */}
+                        {detailFolder.selectedQuarter ===
+                          detailFolder.activeQuarter && (
+                          <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4">
+                            <button
+                              type="button"
+                              onClick={() => editData(item)}
+                              className="rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-bold text-blue-600 transition hover:bg-blue-100"
+                            >
+                              Edit
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => deleteData(item)}
+                              className="rounded-xl border border-red-200 px-4 py-2 text-xs font-bold text-red-600 hover:bg-red-50"
+                            >
+                              Hapus
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}

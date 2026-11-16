@@ -46,6 +46,8 @@ type Recommendation = {
   waktu_pelaksanaan?: string | null;
   uic?: string | null;
   tindak_lanjut?: string | null;
+  triwulan?: number | null;
+  folder_triwulan?: number | null;
 };
 
 type LhpFolder = {
@@ -114,6 +116,7 @@ export default function RecommendationForm({
   const [tahunPeriode, setTahunPeriode] = useState(
     String(selectedYear ?? new Date().getFullYear())
   );
+  const [triwulan, setTriwulan] = useState("");
   const [items, setItems] = useState<RecommendationItem[]>([emptyItem()]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -132,6 +135,7 @@ export default function RecommendationForm({
             new Date().getFullYear()
         )
       );
+      setTriwulan(String(initialFolder.items?.[0]?.folder_triwulan ?? ""));
       setItems([emptyItem()]);
       setMessage("");
       return;
@@ -144,6 +148,7 @@ export default function RecommendationForm({
       setLhaNumber("");
       setLhaDate("");
       setTahunPeriode(String(selectedYear ?? new Date().getFullYear()));
+      setTriwulan("");
       setItems([emptyItem()]);
       setMessage("");
       return;
@@ -157,7 +162,7 @@ export default function RecommendationForm({
     setTahunPeriode(
       String(editingData.tahun_periode ?? new Date().getFullYear())
     );
-
+    setTriwulan(String(editingData.triwulan ?? ""));
     setItems([
       {
         noTemuan: editingData.no_temuan || "",
@@ -220,7 +225,9 @@ export default function RecommendationForm({
     if (items.length === 0) {
       return "Minimal harus ada satu rekomendasi.";
     }
-
+    if (!["1", "2", "3", "4"].includes(triwulan)) {
+      return "Triwulan LHA / LHP wajib dipilih.";
+    }
     const hasIncompleteItem = items.some(
       (item) =>
         !item.noTemuan.trim() || !item.judul.trim() || !item.rencanaAksi.trim()
@@ -257,6 +264,7 @@ export default function RecommendationForm({
       lhaNumber: lhaNumber.trim(),
       lhaDate,
       tahun_periode: Number(tahunPeriode),
+      triwulan: Number(triwulan),
     };
 
     const body = isEditing
@@ -346,6 +354,7 @@ export default function RecommendationForm({
         setLhaDate("");
         setTahunPeriode(String(selectedYear ?? new Date().getFullYear()));
         setItems([emptyItem()]);
+        setTriwulan("");
       }
 
       onSaved();
@@ -503,6 +512,32 @@ export default function RecommendationForm({
 
                   <p className="mt-1 text-xs text-slate-500">
                     Tahun monitoring, terpisah dari tanggal LHA / LHP.
+                  </p>
+                </div>
+                {/* TRIWULAN LHA / LHP */}
+                <div>
+                  <label htmlFor="triwulan" className={labelClass}>
+                    Triwulan <span className="text-red-500">*</span>
+                  </label>
+
+                  <select
+                    id="triwulan"
+                    required
+                    value={triwulan}
+                    onChange={(event) => setTriwulan(event.target.value)}
+                    className={selectClass}
+                    disabled={loading}
+                  >
+                    <option value="">Pilih Triwulan</option>
+                    <option value="1">Triwulan 1</option>
+                    <option value="2">Triwulan 2</option>
+                    <option value="3">Triwulan 3</option>
+                    <option value="4">Triwulan 4</option>
+                  </select>
+
+                  <p className="mt-1 text-xs text-slate-500">
+                    Pilihan ini berlaku untuk seluruh rekomendasi dalam LHA /
+                    LHP.
                   </p>
                 </div>
               </div>
@@ -746,6 +781,7 @@ export default function RecommendationForm({
                         disabled={loading}
                       />
                     </div>
+
                     {/* STATUS */}
 
                     <div className="grid grid-cols-1 gap-5 md:grid-cols-2">

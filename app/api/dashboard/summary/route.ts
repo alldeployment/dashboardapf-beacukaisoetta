@@ -81,6 +81,7 @@ export async function GET(request: Request) {
 
         FROM public.recommendations
       WHERE ${periodFilter}
+      AND asal_recommendation_id IS NULL
       `,
       [year]
     );
@@ -112,6 +113,7 @@ export async function GET(request: Request) {
         FROM public.recommendations
         WHERE UPPER(TRIM(source)) = 'BPK'
           AND tahun_periode = $1
+          AND asal_recommendation_id IS NULL
         ORDER BY
           source,
           category,
@@ -190,6 +192,7 @@ export async function GET(request: Request) {
         FROM public.recommendations
         WHERE UPPER(TRIM(source)) = 'ITJEN'
           AND tahun_periode = $1
+          AND asal_recommendation_id IS NULL
         ORDER BY
           UPPER(TRIM(source)),
           COALESCE(
