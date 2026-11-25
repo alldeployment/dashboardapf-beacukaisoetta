@@ -68,6 +68,7 @@ type TriwulanResult = {
   tl_belum_tuntas: number;
   tl_sudah_tuntas: number;
   total_masuk_saldo?: number;
+  is_finalized: boolean;
 };
 export default function DashboardPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -124,14 +125,19 @@ export default function DashboardPage() {
   const [deletingSaldoId, setDeletingSaldoId] = useState<number | null>(null);
 
   const [savingRumus, setSavingRumus] = useState(false);
+  const [finalizingYear, setFinalizingYear] = useState(false);
+  const [finalizingQuarter, setFinalizingQuarter] = useState<number | null>(
+    null
+  );
+  const [cancellingQuarter, setCancellingQuarter] = useState<number | null>(
+    null
+  );
 
   const [selectedTriwulan, setSelectedTriwulan] = useState<
     1 | 2 | 3 | 4 | null
   >(null);
 
-  const [rumusTriwulan, setRumusTriwulan] = useState(
-    "min(capaian / 81 * 100, 120%)"
-  );
+  const [rumusTriwulan, setRumusTriwulan] = useState("");
 
   const loadDashboard = useCallback(async (year: number) => {
     try {
@@ -352,7 +358,155 @@ export default function DashboardPage() {
       setSavingRumus(false);
     }
   }
+  async function closeYearAndCarryForward() {
+    const confirmed = window.confirm(
+      `Finalisasi TW4 tahun ${selectedYear}?\n\n` +
+        `TW4 merupakan triwulan terakhir. Tidak ada rekomendasi yang otomatis dibawa ke tahun berikutnya.\n\n` +
+        `Apakah kamu yakin ingin melanjutkan?`
+    );
 
+    if (!confirmed) return;
+
+    try {
+      setFinalizingYear(true);
+
+      const response = await fetch("/api/dashboard/capaian", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          year: selectedYear,
+          triwulan: 4,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || result?.ok === false) {
+        throw new Error(result?.message || "Gagal melakukan finalisasi TW4.");
+      }
+
+      await loadDashboard(selectedYear);
+
+      alert(
+        `TW4 tahun ${selectedYear} berhasil difinalisasi.\n\n` +
+          `Tidak ada rekomendasi yang dibawa ke tahun berikutnya.`
+      );
+    } catch (error) {
+      console.error("FINALISASI TW4:", error);
+
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Terjadi kesalahan saat finalisasi TW4."
+      );
+    } finally {
+      setFinalizingYear(false);
+    }
+  }
+
+  async function finalizeQuarter(quarter: 1 | 2 | 3) {
+    const nextQuarter = quarter + 1;
+
+    const confirmed = window.confirm(
+      `Finalisasi TW${quarter} tahun ${selectedYear}?\n\n` +
+        `Rekomendasi yang memenuhi syarat akan dibuatkan riwayat di TW${nextQuarter}. ` +
+        `Riwayat TW${quarter} tetap dipertahankan dan tidak dihapus.`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setFinalizingQuarter(quarter);
+
+      const response = await fetch("/api/dashboard/capaian", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          year: selectedYear,
+          triwulan: quarter,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || result?.ok === false) {
+        throw new Error(result?.message || `Gagal finalisasi TW${quarter}.`);
+      }
+
+      await loadDashboard(selectedYear);
+
+      const jumlah = result?.carry_forward?.jumlah_rekomendasi_dibawa ?? 0;
+
+      alert(
+        `TW${quarter} berhasil difinalisasi.\n\n` +
+          `${jumlah} rekomendasi berhasil dibuatkan riwayat di TW${nextQuarter}.`
+      );
+    } catch (error) {
+      console.error("FINALISASI TRIWULAN:", error);
+
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Gagal melakukan finalisasi triwulan."
+      );
+    } finally {
+      setFinalizingQuarter(null);
+    }
+  }
+  async function cancelQuarter(quarter: 1 | 2 | 3 | 4) {
+    const confirmed = window.confirm(
+      `Batalkan finalisasi TW${quarter} tahun ${selectedYear}?\n\n` +
+        `Snapshot TW${quarter} akan dihapus dan riwayat sumber dikembalikan menjadi belum difinalisasi.\n\n` +
+        `Riwayat otomatis yang belum diedit akan dinonaktifkan. Riwayat yang sudah diedit secara manual akan dipertahankan.\n\n` +
+        `Lanjutkan pembatalan?`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setCancellingQuarter(quarter);
+
+      const response = await fetch("/api/dashboard/capaian", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          year: selectedYear,
+          triwulan: quarter,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || result?.ok === false) {
+        throw new Error(
+          result?.message || `Gagal membatalkan finalisasi TW${quarter}.`
+        );
+      }
+
+      await loadDashboard(selectedYear);
+
+      const jumlah = result?.data?.riwayat_otomatis_dinonaktifkan ?? 0;
+
+      alert(
+        `Finalisasi TW${quarter} berhasil dibatalkan.\n\n` +
+          `${jumlah} riwayat otomatis berhasil dinonaktifkan.`
+      );
+    } catch (error) {
+      console.error("BATAL FINALISASI:", error);
+
+      alert(
+        error instanceof Error ? error.message : "Gagal membatalkan finalisasi."
+      );
+    } finally {
+      setCancellingQuarter(null);
+    }
+  }
   const safeNumber = (value: unknown): number => {
     const number = Number(value);
 
@@ -455,14 +609,7 @@ export default function DashboardPage() {
   const masukSaldoGlobal = safeNumber(summary?.masukSaldo);
   const belumSaldoGlobal = safeNumber(summary?.belumSaldo);
 
-  const persentaseSaldoGlobal =
-    capaianData?.persentase_saldo !== undefined &&
-    capaianData.persentase_saldo !== null
-      ? Math.min(
-          100,
-          Math.max(0, safeNumber(capaianData.persentase_saldo) * 100)
-        )
-      : safeNumber(summary?.persentaseSaldo);
+  const persentaseSaldoGlobal = safeNumber(summary?.persentaseSaldo);
 
   const capaianOtomatis = safeNumber(
     capaianData?.capaian_otomatis ?? summary?.capaian
@@ -476,6 +623,10 @@ export default function DashboardPage() {
   );
 
   const indeksCapaianBar = Math.min(120, Math.max(0, indeksCapaianPersen));
+  const isQuarter4Finalized =
+    capaianData?.triwulan?.some(
+      (item) => item.nomor === 4 && item.is_finalized
+    ) ?? false;
   /*
   ============================================================
   BPK
@@ -920,7 +1071,18 @@ export default function DashboardPage() {
               >
                 + Tambah Rekomendasi
               </Link>
-
+              <button
+                type="button"
+                onClick={() => void closeYearAndCarryForward()}
+                disabled={finalizingYear || loading || isQuarter4Finalized}
+                className="rounded-xl border border-amber-400 bg-amber-400 px-5 py-3 text-sm font-semibold text-[#071426] shadow-lg transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isQuarter4Finalized
+                  ? "TW4 Sudah Difinalisasi"
+                  : finalizingYear
+                  ? "Memfinalisasi TW4..."
+                  : "Finalisasi"}
+              </button>
               <Link
                 href={`/laporan?year=${selectedYear}`}
                 className="rounded-xl border border-white/20 bg-white/10 px-5 py-3 text-sm font-semibold text-white backdrop-blur-md transition hover:bg-white/20"
@@ -1285,10 +1447,40 @@ export default function DashboardPage() {
                     <p className="text-[10px] text-slate-400">
                       Total Rekomendasi
                     </p>
-
                     <p className="text-lg font-bold text-[#071426]">
                       {loading ? "—" : item?.total_rekomendasi ?? 0}
                     </p>
+                    {item?.is_finalized ? (
+                      <button
+                        type="button"
+                        disabled={
+                          loading ||
+                          cancellingQuarter !== null ||
+                          finalizingQuarter !== null
+                        }
+                        onClick={() => void cancelQuarter(quarter)}
+                        className="mt-3 w-full rounded-lg bg-red-600 px-3 py-2.5 text-xs font-bold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {cancellingQuarter === quarter
+                          ? "Membatalkan..."
+                          : "Batalkan Finalisasi"}
+                      </button>
+                    ) : quarter !== 4 ? (
+                      <button
+                        type="button"
+                        disabled={
+                          loading ||
+                          finalizingQuarter !== null ||
+                          cancellingQuarter !== null
+                        }
+                        onClick={() => void finalizeQuarter(quarter)}
+                        className="mt-3 w-full rounded-lg bg-emerald-600 px-3 py-2.5 text-xs font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {finalizingQuarter === quarter
+                          ? "Memproses..."
+                          : `Finalisasi & Bawa ke TW ${quarter + 1}`}
+                      </button>
+                    ) : null}
                   </div>
 
                   <button
@@ -1297,9 +1489,7 @@ export default function DashboardPage() {
                     onClick={() => {
                       setSelectedTriwulan(quarter);
 
-                      setRumusTriwulan(
-                        item?.rumus ?? "min(capaian / 81 * 100, 120%)"
-                      );
+                      setRumusTriwulan(item?.rumus ?? "");
                     }}
                     className="mt-3 w-full rounded-lg border border-blue-200 bg-white px-2 py-2 text-[10px] font-bold text-blue-700 transition hover:bg-blue-50 disabled:opacity-50"
                   >

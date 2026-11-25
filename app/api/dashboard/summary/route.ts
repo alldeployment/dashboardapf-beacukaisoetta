@@ -39,9 +39,6 @@ export async function GET(request: Request) {
      * $1 = tahun yang dipilih.
      */
 
-    const periodFilter = `
-    tahun_periode = $1
-  `;
     /*
      * =========================================================
      * SUMMARY SELURUH DATA PADA PERIODE TERPILIH
@@ -56,33 +53,68 @@ export async function GET(request: Request) {
 
     const result = await pool.query(
       `
+  WITH selected_recommendations AS (
+    SELECT
+      r.id,
+      r.source,
+      r.category,
+      r.lha_number,
+      r.recommendation_number,
+      r.tahun_periode,
+
+      COALESCE(h.follow_up_status, r.follow_up_status)
+        AS follow_up_status,
+
+      COALESCE(h.saldo_status, r.saldo_status)
+        AS saldo_status
+
+    FROM public.recommendations r
+
+    LEFT JOIN LATERAL (
       SELECT
-        COUNT(*)::int AS total,
+        qh.id,
+        qh.follow_up_status,
+        qh.saldo_status
+      FROM public.recommendation_quarter_history qh
+      WHERE qh.recommendation_id = r.id
+        AND qh.tahun_periode = $1
+        AND qh.is_active = TRUE
+      ORDER BY qh.triwulan DESC, qh.id DESC
+      LIMIT 1
+    ) h ON TRUE
 
-        COUNT(*) FILTER (
-          WHERE follow_up_status = 'BELUM_TL'
-        )::int AS belum_tl,
+    WHERE r.asal_recommendation_id IS NULL
+      AND (
+        r.tahun_periode = $1
+        OR h.id IS NOT NULL
+      )
+  )
 
-        COUNT(*) FILTER (
-          WHERE follow_up_status = 'SUDAH_TL'
-        )::int AS tl_belum_tuntas,
+  SELECT
+    COUNT(*)::int AS total,
 
-        COUNT(*) FILTER (
-          WHERE follow_up_status = 'SUDAH_TUNTAS'
-        )::int AS tl_sudah_tuntas,
+    COUNT(*) FILTER (
+      WHERE follow_up_status = 'BELUM_TL'
+    )::int AS belum_tl,
 
-        COUNT(*) FILTER (
-          WHERE saldo_status = 'MASUK_SALDO'
-        )::int AS masuk_saldo,
+    COUNT(*) FILTER (
+      WHERE follow_up_status = 'SUDAH_TL'
+    )::int AS tl_belum_tuntas,
 
-        COUNT(*) FILTER (
-          WHERE saldo_status = 'BELUM_SALDO'
-        )::int AS belum_saldo
+    COUNT(*) FILTER (
+      WHERE follow_up_status = 'SUDAH_TUNTAS'
+    )::int AS tl_sudah_tuntas,
 
-        FROM public.recommendations
-      WHERE ${periodFilter}
-      AND asal_recommendation_id IS NULL
-      `,
+    COUNT(*) FILTER (
+      WHERE saldo_status = 'MASUK_SALDO'
+    )::int AS masuk_saldo,
+
+    COUNT(*) FILTER (
+      WHERE saldo_status = 'BELUM_SALDO'
+    )::int AS belum_saldo
+
+  FROM selected_recommendations
+  `,
       [year]
     );
 
@@ -94,74 +126,102 @@ export async function GET(request: Request) {
 
     const bpkResult = await pool.query(
       `
-      WITH bpk_unique AS (
-        SELECT DISTINCT ON (
-          source,
-          category,
-          COALESCE(NULLIF(TRIM(lha_number), ''), 'ID-' || id::text),
-          COALESCE(recommendation_number::text, 'ID-' || id::text),
-          tahun_periode
-        )
-          id,
-          source,
-          category,
-          saldo_status,
-          follow_up_status,
-          lha_number,
-          recommendation_number,
-          tahun_periode
-        FROM public.recommendations
-        WHERE UPPER(TRIM(source)) = 'BPK'
-          AND tahun_periode = $1
-          AND asal_recommendation_id IS NULL
-        ORDER BY
-          source,
-          category,
-          COALESCE(NULLIF(TRIM(lha_number), ''), 'ID-' || id::text),
-          COALESCE(recommendation_number::text, 'ID-' || id::text),
-          tahun_periode,
-          updated_at DESC NULLS LAST,
-          id DESC
-      )
+  WITH selected_recommendations AS (
+    SELECT
+      r.id,
+      r.source,
+      r.category,
+      r.lha_number,
+      r.recommendation_number,
+      r.tahun_periode,
+      COALESCE(h.follow_up_status, r.follow_up_status)
+        AS follow_up_status,
+      COALESCE(h.saldo_status, r.saldo_status)
+        AS saldo_status
+    FROM public.recommendations r
+    LEFT JOIN LATERAL (
       SELECT
-        COUNT(*)::int AS total,
+        qh.id,
+        qh.follow_up_status,
+        qh.saldo_status
+      FROM public.recommendation_quarter_history qh
+      WHERE qh.recommendation_id = r.id
+        AND qh.tahun_periode = $1
+        AND qh.is_active = TRUE
+      ORDER BY qh.triwulan DESC, qh.id DESC
+      LIMIT 1
+    ) h ON TRUE
+    WHERE r.asal_recommendation_id IS NULL
+      AND (
+        r.tahun_periode = $1
+        OR h.id IS NOT NULL
+      )
+  ),
+  bpk_unique AS (
+    SELECT DISTINCT ON (
+      source,
+      category,
+      COALESCE(NULLIF(TRIM(lha_number), ''), 'ID-' || id::text),
+      COALESCE(recommendation_number::text, 'ID-' || id::text),
+      tahun_periode
+    )
+      id,
+      source,
+      category,
+      saldo_status,
+      follow_up_status,
+      lha_number,
+      recommendation_number,
+      tahun_periode
+    FROM selected_recommendations
+    WHERE UPPER(TRIM(source)) = 'BPK'
+    ORDER BY
+      source,
+      category,
+      COALESCE(NULLIF(TRIM(lha_number), ''), 'ID-' || id::text),
+      COALESCE(recommendation_number::text, 'ID-' || id::text),
+      tahun_periode,
+      id DESC
+  )
+  SELECT
+    COUNT(*)::int AS total,
 
-        COUNT(*) FILTER (
-          WHERE saldo_status = 'MASUK_SALDO'
-        )::int AS masuk_saldo,
+    COUNT(*) FILTER (
+      WHERE saldo_status = 'MASUK_SALDO'
+    )::int AS masuk_saldo,
 
-        COUNT(*) FILTER (
-          WHERE saldo_status = 'BELUM_SALDO'
-        )::int AS belum_saldo,
+    COUNT(*) FILTER (
+      WHERE saldo_status = 'BELUM_SALDO'
+    )::int AS belum_saldo,
 
-        COUNT(*) FILTER (
-          WHERE UPPER(TRIM(category)) IN (
-            'KEUANGAN',
-            'LAPORAN KEUANGAN'
-          )
-        )::int AS keuangan,
+    COUNT(*) FILTER (
+      WHERE UPPER(TRIM(category)) IN (
+        'KEUANGAN',
+        'LAPORAN KEUANGAN'
+      )
+    )::int AS keuangan,
 
-        COUNT(*) FILTER (
-          WHERE UPPER(TRIM(category)) IN (
-            'BUKAN_KEUANGAN',
-            'BUKAN KEUANGAN'
-          )
-        )::int AS bukan_keuangan,
+    COUNT(*) FILTER (
+      WHERE UPPER(TRIM(category)) IN (
+        'BUKAN_KEUANGAN',
+        'BUKAN KEUANGAN'
+      )
+    )::int AS bukan_keuangan,
 
-        COUNT(*) FILTER (
-          WHERE follow_up_status = 'BELUM_TL'
-        )::int AS belum_tl,
+    COUNT(*) FILTER (
+      WHERE follow_up_status = 'BELUM_TL'
+    )::int AS belum_tl,
 
-        COUNT(*) FILTER (
-          WHERE follow_up_status IN ('SUDAH_TL', 'BELUM_TUNTAS')
-        )::int AS tl_belum_tuntas,
+    COUNT(*) FILTER (
+      WHERE follow_up_status IN ('SUDAH_TL', 'BELUM_TUNTAS')
+    )::int AS tl_belum_tuntas,
 
-        COUNT(*) FILTER (
-          WHERE follow_up_status = 'SUDAH_TUNTAS'
-        )::int AS tl_sudah_tuntas
+    COUNT(*) FILTER (
+      WHERE follow_up_status = 'SUDAH_TUNTAS'
+    )::int AS tl_sudah_tuntas
 
-      FROM bpk_unique
-      `,
+  FROM bpk_unique
+  `,
       [year]
     );
 
@@ -173,7 +233,34 @@ export async function GET(request: Request) {
 
     const itjenResult = await pool.query(
       `
-      WITH itjen_unique AS (
+      WITH selected_recommendations AS (
+        SELECT
+          r.id,
+          r.source,
+          r.lha_number,
+          r.recommendation_number,
+          r.tahun_periode,
+          COALESCE(h.follow_up_status, r.follow_up_status)
+            AS follow_up_status
+        FROM public.recommendations r
+        LEFT JOIN LATERAL (
+          SELECT
+            qh.id,
+            qh.follow_up_status
+          FROM public.recommendation_quarter_history qh
+          WHERE qh.recommendation_id = r.id
+            AND qh.tahun_periode = $1
+            AND qh.is_active = TRUE
+          ORDER BY qh.triwulan DESC, qh.id DESC
+          LIMIT 1
+        ) h ON TRUE
+        WHERE r.asal_recommendation_id IS NULL
+          AND (
+            r.tahun_periode = $1
+            OR h.id IS NOT NULL
+          )
+      ),
+      itjen_unique AS (
         SELECT DISTINCT ON (
           UPPER(TRIM(source)),
           COALESCE(
@@ -189,10 +276,8 @@ export async function GET(request: Request) {
           id,
           follow_up_status,
           tahun_periode
-        FROM public.recommendations
+        FROM selected_recommendations
         WHERE UPPER(TRIM(source)) = 'ITJEN'
-          AND tahun_periode = $1
-          AND asal_recommendation_id IS NULL
         ORDER BY
           UPPER(TRIM(source)),
           COALESCE(
@@ -204,7 +289,6 @@ export async function GET(request: Request) {
             'ID-REC-' || id::text
           ),
           tahun_periode,
-          updated_at DESC NULLS LAST,
           id DESC
       )
       SELECT

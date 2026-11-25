@@ -22,6 +22,7 @@ type Recommendation = {
   keterangan_1?: string | null;
   keterangan_2?: string | null;
   keterangan_3?: string | null;
+  tahun_riwayat?: number | null;
 
   // Kolom revisi
   no_temuan?: string | null;
@@ -33,8 +34,9 @@ type Recommendation = {
   tindak_lanjut?: string | null;
 
   created_at?: string;
-  triwulan?: number;
-  folder_triwulan?: number;
+  triwulan?: number | null;
+  folder_triwulan?: number | null;
+  folder_triwulan_aktif?: number | null;
 };
 
 type Summary = {
@@ -68,8 +70,7 @@ type LhpFolder = {
   lha_date: string;
   items: Recommendation[];
   capaian: number;
-  activeQuarter?: number;
-  selectedQuarter?: number;
+  triwulan?: number | null;
 };
 type DocumentFile = {
   id: number;
@@ -456,6 +457,82 @@ export default function RekomendasiPage() {
     [selectedYear]
   );
 
+  /*
+   * UBAH TRIWULAN PER REKOMENDASI
+   */
+  const changeRecommendationQuarter = async (
+    item: Recommendation,
+    quarter: number
+  ) => {
+    try {
+      const response = await fetch("/api/recommendations", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: item.id,
+          tahun_periode: selectedYear,
+          triwulan: quarter,
+        }),
+      });
+
+      const result = await readApiJson(response);
+
+      if (!response.ok) {
+        throw new Error(
+          result?.message || "Gagal mengubah triwulan rekomendasi."
+        );
+      }
+
+      alert("Triwulan rekomendasi berhasil diubah.");
+      await loadData(true);
+    } catch (error) {
+      console.error(error);
+
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Terjadi kesalahan saat mengubah triwulan."
+      );
+    }
+  };
+  const changeFolderQuarter = async (folder: LhpFolder, quarter: number) => {
+    try {
+      const response = await fetch("/api/recommendations", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          scope: "folder",
+          source: folder.source,
+          category: folder.category,
+          lha_number: folder.lha_number,
+          tahun_periode: selectedYear,
+          triwulan: quarter,
+        }),
+      });
+
+      const result = await readApiJson(response);
+
+      if (!response.ok) {
+        throw new Error(result?.message || "Gagal mengubah triwulan folder.");
+      }
+
+      alert(result?.message || "Triwulan folder berhasil diubah.");
+      await loadData(true);
+    } catch (error) {
+      console.error(error);
+
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Terjadi kesalahan saat mengubah triwulan folder."
+      );
+    }
+  };
+
   useEffect(() => {
     if (yearReady) {
       void loadData();
@@ -552,11 +629,33 @@ export default function RekomendasiPage() {
         lha_date: first.lha_date,
         items: sortedItems,
         capaian: folderCapaian,
-        activeQuarter: Number(first.folder_triwulan ?? first.triwulan ?? 1),
-        selectedQuarter: Number(first.folder_triwulan ?? first.triwulan ?? 1),
+        triwulan:
+          first.folder_triwulan_aktif ??
+          first.folder_triwulan ??
+          first.triwulan,
       };
     });
   }, [filteredData]);
+  // Sinkronkan panel detail dengan data terbaru dari API.
+  useEffect(() => {
+    if (!detailFolder) return;
+
+    const updatedFolder = groupedFolders.find(
+      (folder) =>
+        folder.source === detailFolder.source &&
+        folder.category === detailFolder.category &&
+        folder.lha_number === detailFolder.lha_number
+    );
+
+    if (updatedFolder) {
+      setDetailFolder(updatedFolder);
+    }
+  }, [
+    groupedFolders,
+    detailFolder?.source,
+    detailFolder?.category,
+    detailFolder?.lha_number,
+  ]);
 
   /*
    * CAPAIAN OTOMATIS SESUAI FILTER
@@ -682,114 +781,6 @@ export default function RekomendasiPage() {
    */
   function openFolder(folder: LhpFolder) {
     setDetailFolder(folder);
-  }
-
-  async function selectFolderQuarter(quarter: number) {
-    if (!detailFolder) return;
-
-    const activeQuarter = Number(detailFolder.activeQuarter ?? 1);
-
-    if (quarter < 1 || quarter > 4) {
-      alert("Triwulan harus berada antara TW1 sampai TW4.");
-      return;
-    }
-
-    if (quarter === activeQuarter) {
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Ubah triwulan aktif folder ${detailFolder.lha_number} dari TW${activeQuarter} menjadi TW${quarter}?\n\nRiwayat setelah TW${quarter} akan dihapus dan dapat dibentuk kembali melalui proses perpindahan otomatis.\n\nLanjutkan?`
-    );
-
-    if (!confirmed) return;
-
-    try {
-      // 1. Ubah triwulan aktif folder melalui API PATCH.
-      const patchResponse = await fetch("/api/recommendations", {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          source: detailFolder.source,
-          category: detailFolder.category,
-          lhaNumber: detailFolder.lha_number,
-          tahun_periode: selectedYear,
-          triwulan: quarter,
-        }),
-      });
-
-      const patchResult = await readApiJson(patchResponse);
-
-      if (!patchResponse.ok || patchResult?.ok === false) {
-        throw new Error(patchResult?.message || "Gagal mengubah triwulan.");
-      }
-
-      // 2. Ambil kembali data rekomendasi pada triwulan tujuan.
-      const query = `?year=${selectedYear}&triwulan=${quarter}`;
-
-      const response = await fetch(`/api/recommendations${query}`, {
-        cache: "no-store",
-      });
-
-      const result = await readApiJson(response);
-
-      if (!response.ok) {
-        throw new Error(
-          result?.message || "Gagal mengambil data triwulan terbaru."
-        );
-      }
-
-      const rows = Array.isArray(result)
-        ? result
-        : result.data ?? result.recommendations ?? [];
-
-      const folderItems = rows.filter(
-        (item: Recommendation) =>
-          item.source === detailFolder.source &&
-          item.category === detailFolder.category &&
-          item.lha_number === detailFolder.lha_number
-      );
-
-      const sortedItems = [...folderItems].sort(
-        (a, b) => a.recommendation_number - b.recommendation_number
-      );
-
-      const capaian =
-        sortedItems.length > 0
-          ? sortedItems.reduce(
-              (total, item) => total + Number(item.capaian || 0),
-              0
-            ) / sortedItems.length
-          : 0;
-
-      // 3. Perbarui tampilan detail folder.
-      setDetailFolder((prev) =>
-        prev
-          ? {
-              ...prev,
-              items: sortedItems,
-              capaian,
-              selectedQuarter: quarter,
-              activeQuarter: quarter,
-            }
-          : prev
-      );
-
-      // 4. Perbarui tabel dan ringkasan dashboard.
-      await loadData(true);
-
-      alert(`Triwulan aktif folder berhasil diubah menjadi TW${quarter}.`);
-    } catch (error) {
-      console.error("Gagal mengubah triwulan folder:", error);
-
-      alert(
-        error instanceof Error
-          ? error.message
-          : "Terjadi kesalahan saat mengubah triwulan folder."
-      );
-    }
   }
 
   function closeFolder() {
@@ -1134,7 +1125,7 @@ export default function RekomendasiPage() {
             />
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px]">
+              <table className="w-full min-w-[1000px]">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                     <th className="px-5 py-4 font-semibold">No</th>
@@ -1147,6 +1138,9 @@ export default function RekomendasiPage() {
 
                     <th className="px-5 py-4 text-center font-semibold">
                       Jumlah Rek.
+                    </th>
+                    <th className="px-5 py-4 text-center font-semibold">
+                      Triwulan
                     </th>
 
                     <th className="px-5 py-4 font-semibold">Capaian</th>
@@ -1202,6 +1196,17 @@ export default function RekomendasiPage() {
                         <span className="inline-flex min-w-[70px] items-center justify-center rounded-full bg-blue-50 px-3 py-2 text-sm font-bold text-blue-700">
                           {folder.items.length} Rek.
                         </span>
+                      </td>
+                      <td className="px-5 py-4 text-center">
+                        {folder.triwulan ? (
+                          <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
+                            TW {folder.triwulan}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-400">
+                            Belum ditentukan
+                          </span>
+                        )}
                       </td>
 
                       <td className="px-5 py-4">
@@ -1345,40 +1350,6 @@ export default function RekomendasiPage() {
 
               {/* CAPAIAN FOLDER */}
 
-              <div className="mt-6">
-                <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-                  <div>
-                    <h3 className="font-semibold text-slate-800">
-                      Riwayat Triwulan
-                    </h3>
-                    <p className="text-sm text-slate-500">
-                      Triwulan aktif folder: TW{detailFolder.activeQuarter}
-                    </p>
-                  </div>
-
-                  <span className="text-sm text-slate-500">
-                    Sedang melihat: TW{detailFolder.selectedQuarter}
-                  </span>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  {[1, 2, 3, 4].map((quarter) => (
-                    <button
-                      key={quarter}
-                      type="button"
-                      onClick={() => selectFolderQuarter(quarter)}
-                      className={`px-5 py-2 rounded-lg text-sm font-semibold border transition ${
-                        detailFolder.selectedQuarter === quarter
-                          ? "bg-[#071426] text-white border-[#071426]"
-                          : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
-                      }`}
-                    >
-                      TW{quarter}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               <div className="rounded-2xl border border-blue-100 bg-blue-50 p-5">
                 <div className="flex items-center justify-between gap-4">
                   <div>
@@ -1401,6 +1372,36 @@ export default function RekomendasiPage() {
                   <ProgressBar value={detailFolder.capaian} />
                 </div>
               </div>
+              {/* UBAH TRIWULAN SELURUH FOLDER */}
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+                <div className="mb-3">
+                  <h3 className="font-bold text-amber-900">
+                    Triwulan Folder LHP / LHA
+                  </h3>
+                  <p className="mt-1 text-xs text-amber-700">
+                    Perubahan ini berlaku untuk seluruh rekomendasi dalam
+                    folder.
+                  </p>
+                </div>
+
+                <select
+                  value={detailFolder.triwulan ?? ""}
+                  onChange={(e) => {
+                    const quarter = Number(e.target.value);
+
+                    if (quarter >= 1 && quarter <= 4) {
+                      changeFolderQuarter(detailFolder, quarter);
+                    }
+                  }}
+                  className="w-full rounded-xl border border-amber-300 bg-white px-4 py-3 text-sm font-semibold text-slate-800"
+                >
+                  <option value="">Belum Ditentukan</option>
+                  <option value="1">TRIWULAN I</option>
+                  <option value="2">TRIWULAN II</option>
+                  <option value="3">TRIWULAN III</option>
+                  <option value="4">TRIWULAN IV</option>
+                </select>
+              </div>
               {/* DOKUMEN FOLDER */}
               <DocumentManager
                 scope="FOLDER"
@@ -1411,32 +1412,30 @@ export default function RekomendasiPage() {
 
               {/* DAFTAR REKOMENDASI */}
               <div>
-                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h3 className="text-lg font-bold text-slate-900">
-                      Daftar Rekomendasi
-                    </h3>
+                <div className="w-full min-w-0">
+                  <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <h3 className="text-lg font-bold text-slate-900">
+                        Daftar Rekomendasi
+                      </h3>
+                      <p className="mt-1 text-sm text-slate-500">
+                        Daftar rekomendasi yang terdapat dalam folder LHP/LHA
+                        ini.
+                      </p>
+                    </div>
 
-                    <p className="text-sm text-slate-500">
-                      Tambahkan rekomendasi baru ke folder LHP/LHA ini tanpa
-                      membuat folder baru.
-                    </p>
-                  </div>
-
-                  {detailFolder.selectedQuarter ===
-                    detailFolder.activeQuarter && (
                     <button
                       type="button"
                       onClick={() => openAddRecommendationForm(detailFolder)}
-                      className="shrink-0 rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700"
+                      className="w-fit shrink-0 rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700"
                     >
                       + Tambah Rekomendasi
                     </button>
-                  )}
+                  </div>
 
-                  <p className="text-sm text-slate-500">
-                    Nilai capaian rekomendasi ditampilkan sebagai bagian dari
-                    perhitungan sistem.
+                  <p className="mb-4 text-sm text-slate-500">
+                    Nilai capaian setiap rekomendasi ditampilkan sebagai bagian
+                    dari perhitungan sistem.
                   </p>
                 </div>
 
@@ -1464,7 +1463,7 @@ export default function RekomendasiPage() {
                           </div>
                         </div>
 
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span
                             className={`rounded-full border px-3 py-1 text-xs font-semibold ${getStatusClass(
                               item.follow_up_status
@@ -1480,6 +1479,49 @@ export default function RekomendasiPage() {
                           >
                             {getSaldoLabel(item.saldo_status)}
                           </span>
+
+                          <select
+                            value={item.triwulan ?? ""}
+                            onChange={(e) => {
+                              const quarter = Number(e.target.value);
+
+                              if (quarter >= 1 && quarter <= 4) {
+                                changeRecommendationQuarter(item, quarter);
+                              }
+                            }}
+                            className="min-w-[140px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                          >
+                            <option
+                              value=""
+                              className="bg-white font-medium text-slate-600"
+                            >
+                              Belum Ditentukan
+                            </option>
+                            <option
+                              value="1"
+                              className="bg-white text-slate-900"
+                            >
+                              TW I
+                            </option>
+                            <option
+                              value="2"
+                              className="bg-white text-slate-900"
+                            >
+                              TW II
+                            </option>
+                            <option
+                              value="3"
+                              className="bg-white text-slate-900"
+                            >
+                              TW III
+                            </option>
+                            <option
+                              value="4"
+                              className="bg-white text-slate-900"
+                            >
+                              TW IV
+                            </option>
+                          </select>
                         </div>
                       </div>
 
@@ -1543,26 +1585,23 @@ export default function RekomendasiPage() {
                         />
 
                         {/* AKSI */}
-                        {detailFolder.selectedQuarter ===
-                          detailFolder.activeQuarter && (
-                          <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4">
-                            <button
-                              type="button"
-                              onClick={() => editData(item)}
-                              className="rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-bold text-blue-600 transition hover:bg-blue-100"
-                            >
-                              Edit
-                            </button>
+                        <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4">
+                          <button
+                            type="button"
+                            onClick={() => editData(item)}
+                            className="rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-xs font-bold text-blue-600 transition hover:bg-blue-100"
+                          >
+                            Edit
+                          </button>
 
-                            <button
-                              type="button"
-                              onClick={() => deleteData(item)}
-                              className="rounded-xl border border-red-200 px-4 py-2 text-xs font-bold text-red-600 hover:bg-red-50"
-                            >
-                              Hapus
-                            </button>
-                          </div>
-                        )}
+                          <button
+                            type="button"
+                            onClick={() => deleteData(item)}
+                            className="rounded-xl border border-red-200 px-4 py-2 text-xs font-bold text-red-600 hover:bg-red-50"
+                          >
+                            Hapus
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -1897,6 +1936,7 @@ function EmptyState({
     </div>
   );
 }
+
 function DocumentManager({
   scope,
   source,
@@ -1912,14 +1952,16 @@ function DocumentManager({
 }) {
   const [documents, setDocuments] = useState<DocumentFile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const [fileName, setFileName] = useState("");
+  const [fileUrl, setFileUrl] = useState("");
 
   const loadDocuments = useCallback(async () => {
     try {
       setLoading(true);
 
       const params = new URLSearchParams();
-
       params.set("scope", scope);
 
       if (scope === "RECOMMENDATION" && recommendationId) {
@@ -1942,7 +1984,7 @@ function DocumentManager({
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result?.error || "Gagal mengambil dokumen");
+        throw new Error(result?.error || "Gagal mengambil daftar link.");
       }
 
       setDocuments(Array.isArray(result) ? result : []);
@@ -1955,88 +1997,86 @@ function DocumentManager({
   }, [scope, source, lhaNumber, lhaDate, recommendationId]);
 
   useEffect(() => {
-    loadDocuments();
+    void loadDocuments();
   }, [loadDocuments]);
 
-  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-
-    if (!file) return;
-
-    const allowedExtensions = [
-      "pdf",
-      "doc",
-      "docx",
-      "xls",
-      "xlsx",
-      "ppt",
-      "pptx",
-    ];
-
-    const extension = file.name.split(".").pop()?.toLowerCase();
-
-    if (!extension || !allowedExtensions.includes(extension)) {
-      alert(
-        "Format file tidak diperbolehkan.\n\nGunakan: PDF, DOC, DOCX, XLS, XLSX, PPT, atau PPTX."
-      );
-
-      event.target.value = "";
+  // ==========================================
+  // SIMPAN LINK
+  // ==========================================
+  const handleSaveLink = async () => {
+    if (!fileName.trim()) {
+      alert("Nama atau judul dokumen wajib diisi.");
       return;
     }
 
-    if (file.size > 20 * 1024 * 1024) {
-      alert("Ukuran file maksimal 20 MB.");
-      event.target.value = "";
+    if (!fileUrl.trim()) {
+      alert("Link dokumen wajib diisi.");
       return;
     }
 
     try {
-      setUploading(true);
+      const parsedUrl = new URL(fileUrl.trim());
 
-      const formData = new FormData();
-
-      formData.append("file", file);
-      formData.append("source", source);
-      formData.append("lhaNumber", lhaNumber);
-      formData.append("documentScope", scope);
-
-      if (lhaDate) {
-        formData.append("lhaDate", lhaDate);
+      if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+        alert("Link harus menggunakan HTTP atau HTTPS.");
+        return;
       }
+    } catch {
+      alert("Format link tidak valid. Periksa kembali URL yang dimasukkan.");
+      return;
+    }
 
-      if (scope === "RECOMMENDATION" && recommendationId) {
-        formData.append("recommendationId", String(recommendationId));
-      }
+    try {
+      setSaving(true);
 
       const response = await fetch("/api/documents", {
         method: "POST",
-        body: formData,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          fileName: fileName.trim(),
+          fileUrl: fileUrl.trim(),
+          source,
+          lhaNumber,
+          lhaDate: lhaDate || null,
+          documentScope: scope,
+          recommendationId:
+            scope === "RECOMMENDATION" ? recommendationId : null,
+        }),
       });
 
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result?.error || "Gagal mengupload dokumen");
+        throw new Error(result?.error || "Gagal menyimpan link.");
       }
+
+      setFileName("");
+      setFileUrl("");
 
       await loadDocuments();
 
-      alert("Dokumen berhasil diupload.");
+      alert("Link dokumen berhasil disimpan.");
     } catch (error) {
-      console.error("Upload document error:", error);
+      console.error("Save link error:", error);
 
       alert(
-        error instanceof Error ? error.message : "Gagal mengupload dokumen."
+        error instanceof Error
+          ? error.message
+          : "Terjadi kesalahan saat menyimpan link."
       );
     } finally {
-      setUploading(false);
-      event.target.value = "";
+      setSaving(false);
     }
   };
 
+  // ==========================================
+  // HAPUS LINK
+  // ==========================================
   const handleDelete = async (id: number) => {
     const confirmed = window.confirm(
-      "Apakah Anda yakin ingin menghapus dokumen ini?"
+      "Apakah Anda yakin ingin menghapus link dokumen ini?"
     );
 
     if (!confirmed) return;
@@ -2053,140 +2093,170 @@ function DocumentManager({
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result?.error || "Gagal menghapus dokumen");
+        throw new Error(result?.error || "Gagal menghapus link.");
       }
 
       await loadDocuments();
+
+      alert("Link dokumen berhasil dihapus.");
     } catch (error) {
-      console.error("Delete document error:", error);
+      console.error("Delete link error:", error);
 
-      alert(
-        error instanceof Error ? error.message : "Gagal menghapus dokumen."
-      );
+      alert(error instanceof Error ? error.message : "Gagal menghapus link.");
     }
-  };
-
-  const formatFileSize = (size: number | null) => {
-    if (!size) return "-";
-
-    if (size < 1024) {
-      return `${size} B`;
-    }
-
-    if (size < 1024 * 1024) {
-      return `${(size / 1024).toFixed(1)} KB`;
-    }
-
-    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   return (
     <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-lg">📎</span>
+      {/* HEADER */}
+      <div className="mb-4">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">🔗</span>
 
-            <h4 className="text-sm font-semibold text-slate-800">
-              {scope === "FOLDER"
-                ? "Dokumen Folder / LHP"
-                : "Dokumen Rekomendasi"}
-            </h4>
-          </div>
-
-          <p className="mt-1 text-xs text-slate-500">
-            Upload dokumen pendukung secara opsional.
-          </p>
+          <h4 className="text-sm font-semibold text-slate-800">
+            {scope === "FOLDER"
+              ? "Link Dokumen Folder / LHP"
+              : "Link Dokumen Rekomendasi"}
+          </h4>
         </div>
 
-        <label
-          className={`inline-flex cursor-pointer items-center justify-center rounded-xl px-3 py-2 text-xs font-semibold text-white transition ${
-            uploading
-              ? "cursor-not-allowed bg-slate-400"
-              : "bg-slate-800 hover:bg-slate-700"
-          }`}
-        >
-          {uploading ? "Mengupload..." : "+ Upload Dokumen"}
-
-          <input
-            type="file"
-            className="hidden"
-            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
-            onChange={handleUpload}
-            disabled={uploading}
-          />
-        </label>
+        <p className="mt-1 text-xs text-slate-500">
+          Masukkan link dokumen pendukung, misalnya Google Drive.
+        </p>
       </div>
 
-      {loading ? (
-        <div className="py-4 text-center text-xs text-slate-500">
-          Memuat dokumen...
-        </div>
-      ) : documents.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-5 text-center">
-          <div className="text-2xl">📄</div>
+      {/* FORM LINK */}
+      <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+        <div>
+          <label className="mb-2 block text-xs font-semibold text-slate-600">
+            Nama Dokumen
+          </label>
 
-          <p className="mt-2 text-xs font-medium text-slate-600">
-            Belum ada dokumen
-          </p>
-
-          <p className="mt-1 text-[11px] text-slate-400">
-            Dokumen dapat diupload kapan saja.
-          </p>
+          <input
+            type="text"
+            value={fileName}
+            onChange={(event) => setFileName(event.target.value)}
+            placeholder="Contoh: Bukti Tindak Lanjut LHP"
+            className={inputClass}
+            disabled={saving}
+          />
         </div>
-      ) : (
-        <div className="space-y-2">
-          {documents.map((document) => (
-            <div
-              key={document.id}
-              className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-sm font-bold uppercase text-slate-600">
-                  {document.file_type || "DOC"}
+
+        <div>
+          <label className="mb-2 block text-xs font-semibold text-slate-600">
+            URL / Link Dokumen
+          </label>
+
+          <input
+            type="url"
+            value={fileUrl}
+            onChange={(event) => setFileUrl(event.target.value)}
+            placeholder="https://drive.google.com/..."
+            className={inputClass}
+            disabled={saving}
+          />
+        </div>
+
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={handleSaveLink}
+            disabled={saving}
+            className="rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {saving ? "Menyimpan..." : "+ Simpan Link"}
+          </button>
+        </div>
+      </div>
+
+      {/* DAFTAR LINK */}
+      <div className="mt-4">
+        <div className="mb-3 flex items-center justify-between">
+          <h5 className="text-xs font-bold uppercase tracking-wide text-slate-600">
+            Daftar Dokumen
+          </h5>
+
+          <span className="rounded-full bg-blue-100 px-2.5 py-1 text-[10px] font-bold text-blue-700">
+            {documents.length} Link
+          </span>
+        </div>
+
+        {loading ? (
+          <div className="py-5 text-center text-xs text-slate-500">
+            Memuat daftar link...
+          </div>
+        ) : documents.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-6 text-center">
+            <div className="text-2xl">📄</div>
+
+            <p className="mt-2 text-xs font-semibold text-slate-600">
+              Belum ada link dokumen
+            </p>
+
+            <p className="mt-1 text-[11px] text-slate-400">
+              Link yang disimpan akan muncul di bagian ini.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {documents.map((document) => (
+              <div
+                key={document.id}
+                className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-lg">
+                    🔗
+                  </div>
+
+                  <div className="min-w-0">
+                    <p
+                      className="truncate text-sm font-semibold text-slate-800"
+                      title={document.file_name}
+                    >
+                      {document.file_name}
+                    </p>
+
+                    <p
+                      className="mt-1 truncate text-xs text-slate-400"
+                      title={document.file_url}
+                    >
+                      {document.file_url}
+                    </p>
+
+                    <p className="mt-1 text-[10px] text-slate-400">
+                      {document.created_at
+                        ? new Date(document.created_at).toLocaleDateString(
+                            "id-ID"
+                          )
+                        : "-"}
+                    </p>
+                  </div>
                 </div>
 
-                <div className="min-w-0">
-                  <p
-                    className="truncate text-sm font-medium text-slate-700"
-                    title={document.file_name}
+                <div className="flex shrink-0 items-center gap-2">
+                  <a
+                    href={document.file_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 transition hover:bg-blue-100"
                   >
-                    {document.file_name}
-                  </p>
+                    Buka Link
+                  </a>
 
-                  <p className="mt-1 text-[11px] text-slate-400">
-                    {formatFileSize(document.file_size)} •{" "}
-                    {new Date(document.created_at).toLocaleDateString("id-ID")}
-                  </p>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(document.id)}
+                    className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-50"
+                  >
+                    Hapus
+                  </button>
                 </div>
               </div>
-
-              <div className="flex shrink-0 items-center gap-2">
-                <a
-                  href={document.file_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                >
-                  Buka
-                </a>
-
-                <button
-                  type="button"
-                  onClick={() => handleDelete(document.id)}
-                  className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50"
-                >
-                  Hapus
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <p className="mt-3 text-[10px] text-slate-400">
-        Format: PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX • Maksimal 20 MB
-      </p>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

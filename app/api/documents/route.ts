@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { put, del } from "@vercel/blob";
+import { del } from "@vercel/blob";
 import { pool } from "@/lib/db";
 
-const ALLOWED_EXTENSIONS = ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx"];
-
-const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
-
 // ==========================================
-// GET - Mengambil daftar dokumen
+// GET - Mengambil daftar dokumen/link
 // ==========================================
 export async function GET(request: NextRequest) {
   try {
@@ -68,34 +64,23 @@ export async function GET(request: NextRequest) {
 }
 
 // ==========================================
-// POST - Upload dokumen
+// POST - Menyimpan URL/link dokumen
 // ==========================================
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData();
+    const body = await request.json();
 
-    const file = formData.get("file");
-    const source = String(formData.get("source") || "");
-    const lhaNumber = String(formData.get("lhaNumber") || "");
+    const source = String(body.source || "").trim();
+    const lhaNumber = String(body.lhaNumber || "").trim();
+    const lhaDate = body.lhaDate ? String(body.lhaDate) : null;
 
-    const lhaDateValue = formData.get("lhaDate");
-    const lhaDate = lhaDateValue ? String(lhaDateValue) : null;
+    const scope = String(body.documentScope || "");
+    const fileName = String(body.fileName || "").trim();
+    const fileUrl = String(body.fileUrl || "").trim();
 
-    const scope = String(formData.get("documentScope") || "");
-
-    const recommendationIdValue = formData.get("recommendationId");
-
-    const recommendationId = recommendationIdValue
-      ? Number(recommendationIdValue)
+    const recommendationId = body.recommendationId
+      ? Number(body.recommendationId)
       : null;
-
-    // Validasi file
-    if (!(file instanceof File)) {
-      return NextResponse.json(
-        { error: "File dokumen wajib dipilih" },
-        { status: 400 }
-      );
-    }
 
     // Validasi source dan nomor LHA
     if (!source || !lhaNumber) {
@@ -113,6 +98,33 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validasi URL
+    let parsedUrl: URL;
+
+    try {
+      parsedUrl = new URL(fileUrl);
+    } catch {
+      return NextResponse.json(
+        { error: "URL tidak valid. Masukkan link yang benar." },
+        { status: 400 }
+      );
+    }
+
+    if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+      return NextResponse.json(
+        { error: "Link harus menggunakan HTTP atau HTTPS" },
+        { status: 400 }
+      );
+    }
+
+    // Validasi judul link
+    if (!fileName) {
+      return NextResponse.json(
+        { error: "Nama atau judul dokumen wajib diisi" },
+        { status: 400 }
+      );
+    }
+
     // Validasi ID rekomendasi
     if (
       scope === "RECOMMENDATION" &&
@@ -122,28 +134,6 @@ export async function POST(request: NextRequest) {
     ) {
       return NextResponse.json(
         { error: "Recommendation ID tidak valid" },
-        { status: 400 }
-      );
-    }
-
-    // Validasi ukuran file
-    if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json(
-        { error: "Ukuran file maksimal 20 MB" },
-        { status: 400 }
-      );
-    }
-
-    // Validasi ekstensi
-    const originalName = file.name;
-    const extension = originalName.split(".").pop()?.toLowerCase();
-
-    if (!extension || !ALLOWED_EXTENSIONS.includes(extension)) {
-      return NextResponse.json(
-        {
-          error:
-            "Format file tidak diperbolehkan. Gunakan PDF, DOC, DOCX, XLS, XLSX, PPT, atau PPTX.",
-        },
         { status: 400 }
       );
     }
@@ -168,14 +158,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Upload file ke Vercel Blob
-    const blob = await put(`documents/${Date.now()}-${originalName}`, file, {
-      access: "public",
-      addRandomSuffix: true,
-      contentType: file.type || "application/octet-stream",
-    });
-
-    // Simpan metadata dokumen ke PostgreSQL
+    // Simpan link ke PostgreSQL
     const result = await pool.query(
       `
       INSERT INTO public.document_files (
@@ -197,17 +180,17 @@ export async function POST(request: NextRequest) {
         source,
         lhaNumber,
         lhaDate,
-        originalName,
-        blob.url,
-        extension,
-        file.size,
+        fileName,
+        fileUrl,
+        "LINK",
+        null,
         scope,
       ]
     );
 
     return NextResponse.json(
       {
-        message: "Dokumen berhasil diupload",
+        message: "Link dokumen berhasil disimpan",
         document: result.rows[0],
       },
       { status: 201 }
@@ -225,7 +208,7 @@ export async function POST(request: NextRequest) {
 }
 
 // ==========================================
-// DELETE - Menghapus dokumen
+// DELETE - Menghapus data dokumen/link
 // ==========================================
 export async function DELETE(request: NextRequest) {
   try {
@@ -259,10 +242,19 @@ export async function DELETE(request: NextRequest) {
 
     const document = result.rows[0];
 
-    // Hapus file dari Vercel Blob
-    await del(document.file_url);
+    // Hanya hapus file lama jika memang berasal dari Vercel Blob.
+    // Link Google Drive atau link eksternal lainnya tidak disentuh.
+    try {
+      const documentUrl = new URL(document.file_url);
 
-    // Hapus metadata dari PostgreSQL
+      if (documentUrl.hostname.endsWith(".blob.vercel-storage.com")) {
+        await del(document.file_url);
+      }
+    } catch (error) {
+      console.error("Gagal menghapus file Blob lama:", error);
+    }
+
+    // Hapus data dari PostgreSQL
     await pool.query(
       `
       DELETE FROM public.document_files
@@ -272,7 +264,7 @@ export async function DELETE(request: NextRequest) {
     );
 
     return NextResponse.json({
-      message: "Dokumen berhasil dihapus",
+      message: "Link dokumen berhasil dihapus",
     });
   } catch (error) {
     console.error("DELETE documents error:", error);

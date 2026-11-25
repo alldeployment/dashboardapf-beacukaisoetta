@@ -13,7 +13,17 @@ const RUMUS_PERSENTASE_SALDO_DEFAULT =
   "((70% * tl_belum_tuntas) + tl_sudah_tuntas) / saldo";
 
 const RUMUS_INDEKS_DEFAULT = "min(capaian / 81 * 100, 120%)";
-const RUMUS_TRIWULAN_DEFAULT = "min(capaian / 81 * 100, 120%)";
+
+const RUMUS_TRIWULAN_DEFAULT = {
+  1: "min(capaian / 0.40, 120%)",
+  2: "min(capaian / 0.50, 120%)",
+  3: "min(capaian / 0.62, 120%)",
+  4: "min(capaian / 0.81, 120%)",
+} as const;
+
+function getDefaultRumusTriwulan(quarter: 1 | 2 | 3 | 4) {
+  return RUMUS_TRIWULAN_DEFAULT[quarter];
+}
 
 function normalizePercentLiterals(formula: string): string {
   return formula.replace(/(\d+(?:\.\d+)?)\s*%/g, (_match, value: string) =>
@@ -91,6 +101,11 @@ async function ensureQuarterSnapshotTable() {
     ADD COLUMN IF NOT EXISTS rumus_dasar_digunakan TEXT
     NOT NULL DEFAULT '((70% * tl_belum_tuntas) + (100% * tl_sudah_tuntas)) / saldo'
   `);
+  await pool.query(`
+  ALTER TABLE public.dashboard_capaian_triwulan
+  ADD COLUMN IF NOT EXISTS total_rekomendasi
+  INTEGER NOT NULL DEFAULT 0
+`);
 }
 
 // Memastikan tabel riwayat triwulan tersedia.
@@ -120,6 +135,67 @@ async function ensureQuarterHistoryTable() {
     ALTER TABLE public.recommendation_quarter_history
     ADD COLUMN IF NOT EXISTS is_finalized BOOLEAN NOT NULL DEFAULT FALSE
   `);
+  await pool.query(`
+  ALTER TABLE public.recommendation_quarter_history
+    ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    ADD COLUMN IF NOT EXISTS carry_forward_from_year INTEGER,
+    ADD COLUMN IF NOT EXISTS carry_forward_from_quarter SMALLINT
+`);
+}
+// Mencatat riwayat yang benar-benar dibuat oleh carry-forward.
+// Data ini digunakan untuk pembatalan finalisasi secara aman.
+async function ensureCarryForwardTrackingTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS public.recommendation_quarter_carry_forward (
+      id BIGSERIAL PRIMARY KEY,
+      source_year INTEGER NOT NULL,
+      source_quarter SMALLINT NOT NULL,
+      target_year INTEGER NOT NULL,
+      target_quarter SMALLINT NOT NULL,
+
+      source_history_id BIGINT NOT NULL
+        REFERENCES public.recommendation_quarter_history(id)
+        ON DELETE CASCADE,
+
+      target_history_id BIGINT NOT NULL
+        REFERENCES public.recommendation_quarter_history(id)
+        ON DELETE CASCADE,
+
+      recommendation_id INTEGER NOT NULL
+        REFERENCES public.recommendations(id)
+        ON DELETE CASCADE,
+
+      target_history_updated_at TIMESTAMP NOT NULL,
+
+      action_type VARCHAR(20) NOT NULL DEFAULT 'CREATED',
+
+      previous_follow_up_status VARCHAR(50),
+      previous_saldo_status VARCHAR(50),
+      previous_capaian NUMERIC(5, 2),
+      previous_carry_forward_from_year INTEGER,
+      previous_carry_forward_from_quarter SMALLINT,
+
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+      CONSTRAINT recommendation_quarter_carry_forward_unique
+        UNIQUE (source_history_id, target_history_id)
+    )
+  `);
+
+  // Migrasi tambahan untuk tabel tracking yang sudah terlanjur dibuat.
+  await pool.query(`
+   ALTER TABLE public.recommendation_quarter_carry_forward
+     ADD COLUMN IF NOT EXISTS action_type VARCHAR(20)
+       NOT NULL DEFAULT 'CREATED',
+     ADD COLUMN IF NOT EXISTS previous_follow_up_status VARCHAR(50),
+     ADD COLUMN IF NOT EXISTS previous_saldo_status VARCHAR(50),
+     ADD COLUMN IF NOT EXISTS previous_capaian NUMERIC(5, 2),
+     ADD COLUMN IF NOT EXISTS previous_carry_forward_from_year INTEGER,
+     ADD COLUMN IF NOT EXISTS previous_carry_forward_from_quarter SMALLINT,
+     ADD COLUMN IF NOT EXISTS applied_follow_up_status VARCHAR(50),
+     ADD COLUMN IF NOT EXISTS applied_saldo_status VARCHAR(50),
+     ADD COLUMN IF NOT EXISTS applied_capaian NUMERIC(5, 2)
+ `);
 }
 // Pengaturan rumus berlaku global untuk seluruh periode.
 
@@ -145,17 +221,51 @@ async function getOrCreateRumus() {
     ADD COLUMN IF NOT EXISTS rumus_persentase_saldo TEXT
       NOT NULL DEFAULT '((70% * tl_belum_tuntas) + tl_sudah_tuntas) / saldo',
 
-    ADD COLUMN IF NOT EXISTS rumus_triwulan_1 TEXT
-      NOT NULL DEFAULT '((70% * tl_belum_tuntas) + (100% * tl_sudah_tuntas)) / saldo',
-
+      ADD COLUMN IF NOT EXISTS rumus_triwulan_1 TEXT
+      NOT NULL DEFAULT 'min(capaian / 0.40, 120%)',
+    
     ADD COLUMN IF NOT EXISTS rumus_triwulan_2 TEXT
-      NOT NULL DEFAULT '((70% * tl_belum_tuntas) + (100% * tl_sudah_tuntas)) / saldo',
-
+      NOT NULL DEFAULT 'min(capaian / 0.50, 120%)',
+    
     ADD COLUMN IF NOT EXISTS rumus_triwulan_3 TEXT
-      NOT NULL DEFAULT '((70% * tl_belum_tuntas) + (100% * tl_sudah_tuntas)) / saldo',
-
+      NOT NULL DEFAULT 'min(capaian / 0.62, 120%)',
+    
     ADD COLUMN IF NOT EXISTS rumus_triwulan_4 TEXT
-      NOT NULL DEFAULT '((70% * tl_belum_tuntas) + (100% * tl_sudah_tuntas)) / saldo'
+      NOT NULL DEFAULT 'min(capaian / 0.81, 120%)'
+`);
+  // Memperbaiki nilai lama yang masih menggunakan rumus capaian dasar.
+  // Rumus custom yang pernah disimpan tidak akan ditimpa.
+  await pool.query(`
+UPDATE public.pengaturan_rumus_capaian
+SET
+  rumus_triwulan_1 = CASE
+    WHEN TRIM(rumus_triwulan_1) =
+      '((70% * tl_belum_tuntas) + (100% * tl_sudah_tuntas)) / saldo'
+    THEN 'min(capaian / 0.40, 120%)'
+    ELSE rumus_triwulan_1
+  END,
+
+  rumus_triwulan_2 = CASE
+    WHEN TRIM(rumus_triwulan_2) =
+      '((70% * tl_belum_tuntas) + (100% * tl_sudah_tuntas)) / saldo'
+    THEN 'min(capaian / 0.50, 120%)'
+    ELSE rumus_triwulan_2
+  END,
+
+  rumus_triwulan_3 = CASE
+    WHEN TRIM(rumus_triwulan_3) =
+      '((70% * tl_belum_tuntas) + (100% * tl_sudah_tuntas)) / saldo'
+    THEN 'min(capaian / 0.62, 120%)'
+    ELSE rumus_triwulan_3
+  END,
+
+  rumus_triwulan_4 = CASE
+    WHEN TRIM(rumus_triwulan_4) =
+      '((70% * tl_belum_tuntas) + (100% * tl_sudah_tuntas)) / saldo'
+    THEN 'min(capaian / 0.81, 120%)'
+    ELSE rumus_triwulan_4
+  END
+WHERE id = 1
 `);
   console.log("TAHAP RUMUS: INSERT");
   await pool.query(
@@ -278,70 +388,72 @@ async function getSummary(year: number | null) {
   const result = await pool.query(
     `
     SELECT
+    COUNT(*)::int AS total_rekomendasi,
+
+COUNT(*) FILTER (
+  WHERE UPPER(TRIM(COALESCE(h.follow_up_status, r.follow_up_status, '')))
+    = 'BELUM_TL'
+)::int AS total_belum_tl,
+
+COUNT(*) FILTER (
+  WHERE UPPER(TRIM(COALESCE(h.follow_up_status, r.follow_up_status, '')))
+    IN ('SUDAH_TL', 'BELUM_TUNTAS', 'TL_BELUM_TUNTAS')
+)::int AS total_tl_belum_tuntas,
+
+COUNT(*) FILTER (
+  WHERE UPPER(TRIM(COALESCE(h.follow_up_status, r.follow_up_status, '')))
+    IN ('SUDAH_TUNTAS', 'TL_SUDAH_TUNTAS')
+)::int AS total_tl_sudah_tuntas,
       COUNT(*) FILTER (
-        WHERE UPPER(TRIM(COALESCE(
-          r.saldo_status, h.saldo_status, ''
-        ))) = 'MASUK_SALDO'
+        WHERE UPPER(TRIM(COALESCE(h.saldo_status, r.saldo_status, '')))
+          = 'MASUK_SALDO'
       )::int AS saldo,
 
       COUNT(*) FILTER (
-        WHERE UPPER(TRIM(COALESCE(
-          r.saldo_status, h.saldo_status, ''
-        ))) = 'MASUK_SALDO'
-        AND UPPER(TRIM(COALESCE(
-          r.follow_up_status, h.follow_up_status, ''
-        ))) = 'BELUM_TL'
+        WHERE UPPER(TRIM(COALESCE(h.saldo_status, r.saldo_status, '')))
+          = 'MASUK_SALDO'
+          AND UPPER(TRIM(COALESCE(h.follow_up_status, r.follow_up_status, '')))
+            = 'BELUM_TL'
       )::int AS belum_tl,
 
       COUNT(*) FILTER (
-        WHERE UPPER(TRIM(COALESCE(
-          r.saldo_status, h.saldo_status, ''
-        ))) = 'MASUK_SALDO'
-        AND UPPER(TRIM(COALESCE(
-          r.follow_up_status, h.follow_up_status, ''
-        ))) IN ('SUDAH_TL', 'BELUM_TUNTAS', 'TL_BELUM_TUNTAS')
+        WHERE UPPER(TRIM(COALESCE(h.saldo_status, r.saldo_status, '')))
+          = 'MASUK_SALDO'
+          AND UPPER(TRIM(COALESCE(h.follow_up_status, r.follow_up_status, '')))
+            IN ('SUDAH_TL', 'BELUM_TUNTAS', 'TL_BELUM_TUNTAS')
       )::int AS tl_belum_tuntas,
 
       COUNT(*) FILTER (
-        WHERE UPPER(TRIM(COALESCE(
-          r.saldo_status, h.saldo_status, ''
-        ))) = 'MASUK_SALDO'
-        AND UPPER(TRIM(COALESCE(
-          r.follow_up_status, h.follow_up_status, ''
-        ))) IN ('SUDAH_TUNTAS', 'TL_SUDAH_TUNTAS')
+        WHERE UPPER(TRIM(COALESCE(h.saldo_status, r.saldo_status, '')))
+          = 'MASUK_SALDO'
+          AND UPPER(TRIM(COALESCE(h.follow_up_status, r.follow_up_status, '')))
+            IN ('SUDAH_TUNTAS', 'TL_SUDAH_TUNTAS')
       )::int AS tl_sudah_tuntas,
 
       COUNT(*) FILTER (
-        WHERE UPPER(TRIM(COALESCE(
-          r.saldo_status, h.saldo_status, ''
-        ))) = 'MASUK_SALDO'
+        WHERE UPPER(TRIM(COALESCE(h.saldo_status, r.saldo_status, '')))
+          = 'MASUK_SALDO'
       )::int AS masuk_saldo,
 
       COUNT(*) FILTER (
-        WHERE UPPER(TRIM(COALESCE(
-          r.saldo_status, h.saldo_status, ''
-        ))) = 'MASUK_SALDO'
-        AND UPPER(TRIM(COALESCE(
-          r.follow_up_status, h.follow_up_status, ''
-        ))) = 'BELUM_TL'
+        WHERE UPPER(TRIM(COALESCE(h.saldo_status, r.saldo_status, '')))
+          = 'MASUK_SALDO'
+          AND UPPER(TRIM(COALESCE(h.follow_up_status, r.follow_up_status, '')))
+            = 'BELUM_TL'
       )::int AS masuk_belum_tl,
 
       COUNT(*) FILTER (
-        WHERE UPPER(TRIM(COALESCE(
-          r.saldo_status, h.saldo_status, ''
-        ))) = 'MASUK_SALDO'
-        AND UPPER(TRIM(COALESCE(
-          r.follow_up_status, h.follow_up_status, ''
-        ))) IN ('SUDAH_TL', 'BELUM_TUNTAS', 'TL_BELUM_TUNTAS')
+        WHERE UPPER(TRIM(COALESCE(h.saldo_status, r.saldo_status, '')))
+          = 'MASUK_SALDO'
+          AND UPPER(TRIM(COALESCE(h.follow_up_status, r.follow_up_status, '')))
+            IN ('SUDAH_TL', 'BELUM_TUNTAS', 'TL_BELUM_TUNTAS')
       )::int AS masuk_tl_belum_tuntas,
 
       COUNT(*) FILTER (
-        WHERE UPPER(TRIM(COALESCE(
-          r.saldo_status, h.saldo_status, ''
-        ))) = 'MASUK_SALDO'
-        AND UPPER(TRIM(COALESCE(
-          r.follow_up_status, h.follow_up_status, ''
-        ))) IN ('SUDAH_TUNTAS', 'TL_SUDAH_TUNTAS')
+        WHERE UPPER(TRIM(COALESCE(h.saldo_status, r.saldo_status, '')))
+          = 'MASUK_SALDO'
+          AND UPPER(TRIM(COALESCE(h.follow_up_status, r.follow_up_status, '')))
+            IN ('SUDAH_TUNTAS', 'TL_SUDAH_TUNTAS')
       )::int AS masuk_tl_sudah_tuntas
 
     FROM public.recommendations r
@@ -352,13 +464,24 @@ async function getSummary(year: number | null) {
         qh.saldo_status
       FROM public.recommendation_quarter_history qh
       WHERE qh.recommendation_id = r.id
-        AND qh.tahun_periode = r.tahun_periode
-      ORDER BY qh.triwulan DESC
+        AND qh.is_active = TRUE
+        AND (
+          $1::int IS NULL
+          OR qh.tahun_periode = $1::int
+        )
+      ORDER BY
+        qh.tahun_periode DESC,
+        qh.triwulan DESC,
+        qh.id DESC
       LIMIT 1
     ) h ON TRUE
 
-    WHERE $1::int IS NULL
-       OR r.tahun_periode = $1::int
+    WHERE r.asal_recommendation_id IS NULL
+      AND (
+        $1::int IS NULL
+        OR r.tahun_periode = $1::int
+        OR h.follow_up_status IS NOT NULL
+      )
     `,
     [year]
   );
@@ -375,17 +498,18 @@ async function getSummaryTriwulan(year: number, quarter: number) {
 
       COUNT(*) FILTER (
         WHERE UPPER(TRIM(COALESCE(follow_up_status, ''))) = 'BELUM_TL'
-      )::int AS belum_tl,
-
-      COUNT(*) FILTER (
-        WHERE UPPER(TRIM(COALESCE(follow_up_status, '')))
-          IN ('SUDAH_TL', 'BELUM_TUNTAS', 'TL_BELUM_TUNTAS')
-      )::int AS tl_belum_tuntas,
-
-      COUNT(*) FILTER (
-        WHERE UPPER(TRIM(COALESCE(follow_up_status, '')))
-          IN ('SUDAH_TUNTAS', 'TL_SUDAH_TUNTAS')
-      )::int AS tl_sudah_tuntas
+          AND UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
+    ) AS belum_tl,
+    
+    COUNT(*) FILTER (
+        WHERE UPPER(TRIM(COALESCE(follow_up_status, ''))) = 'SUDAH_TL'
+          AND UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
+    ) AS tl_belum_tuntas,
+    
+    COUNT(*) FILTER (
+        WHERE UPPER(TRIM(COALESCE(follow_up_status, ''))) = 'SUDAH_TUNTAS'
+          AND UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
+    ) AS tl_sudah_tuntas
 
     FROM public.recommendations
 
@@ -400,43 +524,49 @@ async function getSummaryTriwulan(year: number, quarter: number) {
 }
 // Mengambil ringkasan berdasarkan riwayat triwulan
 // yang dipilih pada setiap rekomendasi.
+
 async function getSummaryTriwulanHistory(year: number, quarter: number) {
   const result = await pool.query(
     `
     SELECT
       COUNT(*) FILTER (
-        WHERE UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
+        WHERE UPPER(TRIM(COALESCE(h.saldo_status, ''))) = 'MASUK_SALDO'
       )::int AS saldo,
 
       COUNT(*) FILTER (
-        WHERE UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
-          AND UPPER(TRIM(COALESCE(follow_up_status, ''))) = 'BELUM_TL'
+        WHERE UPPER(TRIM(COALESCE(h.saldo_status, ''))) = 'MASUK_SALDO'
+          AND UPPER(TRIM(COALESCE(h.follow_up_status, ''))) = 'BELUM_TL'
       )::int AS belum_tl,
 
       COUNT(*) FILTER (
-        WHERE UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
-          AND UPPER(TRIM(COALESCE(follow_up_status, '')))
+        WHERE UPPER(TRIM(COALESCE(h.saldo_status, ''))) = 'MASUK_SALDO'
+          AND UPPER(TRIM(COALESCE(h.follow_up_status, '')))
             IN ('SUDAH_TL', 'BELUM_TUNTAS', 'TL_BELUM_TUNTAS')
       )::int AS tl_belum_tuntas,
 
       COUNT(*) FILTER (
-        WHERE UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
-          AND UPPER(TRIM(COALESCE(follow_up_status, '')))
+        WHERE UPPER(TRIM(COALESCE(h.saldo_status, ''))) = 'MASUK_SALDO'
+          AND UPPER(TRIM(COALESCE(h.follow_up_status, '')))
             IN ('SUDAH_TUNTAS', 'TL_SUDAH_TUNTAS')
       )::int AS tl_sudah_tuntas,
 
       COUNT(*)::int AS total_rekomendasi
 
-    FROM public.recommendation_quarter_history
+    FROM public.recommendation_quarter_history h
+    INNER JOIN public.recommendations r
+      ON r.id = h.recommendation_id
 
-    WHERE tahun_periode = $1
-      AND triwulan = $2
+    WHERE h.tahun_periode = $1
+      AND h.triwulan = $2
+      AND h.is_active = TRUE
+      AND r.asal_recommendation_id IS NULL
     `,
     [year, quarter]
   );
 
   return result.rows[0];
 }
+
 // GET: membaca capaian dan menghitung indeks.
 export async function GET(request: Request) {
   let tahap = "Memulai GET";
@@ -486,15 +616,24 @@ export async function GET(request: Request) {
 
     tahap = "Menghitung data triwulan";
 
+    // =====================================================
+    // DATA SELURUH REKOMENDASI
+    // =====================================================
+    const totalRekomendasi = Number(summary?.total_rekomendasi ?? 0);
+
+    const totalBelumTL = Number(summary?.total_belum_tl ?? 0);
+    const totalTLBelumTuntas = Number(summary?.total_tl_belum_tuntas ?? 0);
+    const totalTLSudahTuntas = Number(summary?.total_tl_sudah_tuntas ?? 0);
+
+    // =====================================================
+    // DATA REKOMENDASI MASUK SALDO
+    // =====================================================
     const saldo = Number(summary?.saldo ?? 0);
     const belumTL = Number(summary?.belum_tl ?? 0);
     const tlBelumTuntas = Number(summary?.tl_belum_tuntas ?? 0);
     const tlSudahTuntas = Number(summary?.tl_sudah_tuntas ?? 0);
-
     // =====================================================
     // PERHITUNGAN 4 TRIWULAN
-    // KHUSUS REKOMENDASI MASUK SALDO
-    // Setiap triwulan memiliki rumus tersendiri.
     // =====================================================
 
     const rumusDasar =
@@ -504,68 +643,56 @@ export async function GET(request: Request) {
     const triwulanData = [];
 
     for (const quarter of [1, 2, 3, 4] as const) {
-      // Ambil seluruh riwayat rekomendasi pada triwulan ini.
       const quarterSummary = await getSummaryTriwulanHistory(
         settingsYear,
         quarter
       );
-      // Ambil snapshot finalisasi jika triwulan sudah difinalisasi.
+
+      // Periksa apakah triwulan sudah difinalisasi.
       const snapshotResult = await pool.query(
         `
-  SELECT *
-  FROM public.dashboard_capaian_triwulan
-  WHERE tahun = $1
-    AND triwulan = $2
-    AND is_finalized = TRUE
-  LIMIT 1
-  `,
+    SELECT *
+    FROM public.dashboard_capaian_triwulan
+    WHERE tahun = $1
+      AND triwulan = $2
+      AND is_finalized = TRUE
+    LIMIT 1
+    `,
         [settingsYear, quarter]
       );
 
       const snapshot = snapshotResult.rows[0];
 
-      // Jika sudah difinalisasi, gunakan hasil snapshot.
-      // Jangan menghitung ulang dari riwayat.
+      // Jika sudah final, gunakan snapshot yang tersimpan.
       if (snapshot) {
         triwulanData.push({
           nomor: quarter,
-
           capaian: Number(snapshot.capaian_persen) / 100,
           capaian_persen: Number(snapshot.capaian_persen),
-
           capaian_dasar: Number(snapshot.capaian_dasar),
-
           rumus: snapshot.rumus_digunakan,
           rumus_dasar: snapshot.rumus_dasar_digunakan,
-
-          total_rekomendasi: Number(quarterSummary?.total_rekomendasi ?? 0),
-
+          total_rekomendasi: Number(snapshot.total_rekomendasi ?? 0),
           total_masuk_saldo: Number(snapshot.total_masuk_saldo),
           belum_tl: Number(snapshot.belum_tl),
           tl_belum_tuntas: Number(snapshot.tl_belum_tuntas),
           tl_sudah_tuntas: Number(snapshot.tl_sudah_tuntas),
-
           is_finalized: true,
           finalized_at: snapshot.finalized_at,
         });
 
         continue;
       }
-      // Jumlah seluruh rekomendasi, termasuk yang belum masuk saldo.
+
       const totalRekomendasiQuarter = Number(
         quarterSummary?.total_rekomendasi ?? 0
       );
 
-      // Jumlah rekomendasi yang masuk saldo.
       const saldoQuarter = Number(quarterSummary?.saldo ?? 0);
-
       const belumTLQuarter = Number(quarterSummary?.belum_tl ?? 0);
-
       const tlBelumTuntasQuarter = Number(quarterSummary?.tl_belum_tuntas ?? 0);
-
       const tlSudahTuntasQuarter = Number(quarterSummary?.tl_sudah_tuntas ?? 0);
 
-      // Ambil rumus khusus triwulan.
       const rumusKey = `rumus_triwulan_${quarter}` as
         | "rumus_triwulan_1"
         | "rumus_triwulan_2"
@@ -574,14 +701,13 @@ export async function GET(request: Request) {
 
       const rumus =
         String(rumusTersimpan?.[rumusKey] ?? "").trim() ||
-        RUMUS_TRIWULAN_DEFAULT;
+        getDefaultRumusTriwulan(quarter);
 
-      // Hitung capaian dasar.
       const capaianDasarQuarter =
-        saldoQuarter > 0
+        totalRekomendasiQuarter > 0
           ? hitungRumusIndeks(normalizePercentLiterals(rumusDasar), {
               capaian: 0,
-              saldo: saldoQuarter,
+              saldo: totalRekomendasiQuarter,
               belum_tl: belumTLQuarter,
               tl_belum_tuntas: tlBelumTuntasQuarter,
               tl_sudah_tuntas: tlSudahTuntasQuarter,
@@ -592,12 +718,11 @@ export async function GET(request: Request) {
         throw new Error(`Capaian dasar Triwulan ${quarter} tidak valid.`);
       }
 
-      // Hitung persentase capaian triwulan.
       const capaianQuarter =
-        saldoQuarter > 0
+        totalRekomendasiQuarter > 0
           ? hitungRumusIndeks(normalizePercentLiterals(rumus), {
               capaian: capaianDasarQuarter,
-              saldo: saldoQuarter,
+              saldo: totalRekomendasiQuarter,
               belum_tl: belumTLQuarter,
               tl_belum_tuntas: tlBelumTuntasQuarter,
               tl_sudah_tuntas: tlSudahTuntasQuarter,
@@ -623,19 +748,22 @@ export async function GET(request: Request) {
         finalized_at: null,
       });
     }
-    // Capaian Otomatis dihitung berdasarkan seluruh rekomendasi.
+    // =====================================================
+    // CAPAIAN OTOMATIS SELURUH REKOMENDASI
+    // Pembagi = total seluruh rekomendasi
+    // =====================================================
     const rumusCapaian =
       String(rumusTersimpan?.rumus_capaian ?? "").trim() ||
       RUMUS_CAPAIAN_DEFAULT;
 
     const capaianOtomatis =
-      saldo > 0
+      totalRekomendasi > 0
         ? hitungRumusIndeks(normalizePercentLiterals(rumusCapaian), {
             capaian: 0,
-            saldo,
-            belum_tl: belumTL,
-            tl_belum_tuntas: tlBelumTuntas,
-            tl_sudah_tuntas: tlSudahTuntas,
+            saldo: totalRekomendasi,
+            belum_tl: totalBelumTL,
+            tl_belum_tuntas: totalTLBelumTuntas,
+            tl_sudah_tuntas: totalTLSudahTuntas,
           })
         : 0;
 
@@ -643,15 +771,23 @@ export async function GET(request: Request) {
       throw new Error("Hasil rumus Capaian Otomatis tidak valid.");
     }
 
+    // =====================================================
+    // INDEKS CAPAIAN OTOMATIS
+    // =====================================================
     const rumusIndeks =
       String(rumusTersimpan?.rumus_indeks ?? "").trim() || RUMUS_INDEKS_DEFAULT;
 
     const indeksCapaianOtomatis = hitungRumusIndeks(rumusIndeks, {
       capaian: capaianOtomatis,
-      saldo,
-      tl_belum_tuntas: tlBelumTuntas,
-      tl_sudah_tuntas: tlSudahTuntas,
+      saldo: totalRekomendasi,
+      tl_belum_tuntas: totalTLBelumTuntas,
+      tl_sudah_tuntas: totalTLSudahTuntas,
     });
+
+    // =====================================================
+    // PERSENTASE SALDO
+    // Pembagi = hanya rekomendasi masuk saldo
+    // =====================================================
     const rumusPersentaseSaldo =
       String(rumusTersimpan?.rumus_persentase_saldo ?? "").trim() ||
       RUMUS_PERSENTASE_SALDO_DEFAULT;
@@ -669,7 +805,6 @@ export async function GET(request: Request) {
             tl_sudah_tuntas: masukTLSudahTuntas,
           })
         : 0;
-
     if (!Number.isFinite(persentaseSaldoOtomatis)) {
       throw new Error("Hasil rumus Persentase Saldo tidak valid.");
     }
@@ -707,6 +842,11 @@ export async function GET(request: Request) {
 
         indeks_capaian_mode: mode,
 
+        total_rekomendasi: totalRekomendasi,
+        total_belum_tl: totalBelumTL,
+        total_tl_belum_tuntas: totalTLBelumTuntas,
+        total_tl_sudah_tuntas: totalTLSudahTuntas,
+
         saldo,
         belum_tl: belumTL,
         tl_belum_tuntas: tlBelumTuntas,
@@ -732,195 +872,255 @@ export async function GET(request: Request) {
     );
   }
 }
-async function carryForwardUnfinishedRecommendations(
-  client: PoolClient,
-  year: number
-) {
-  const nextYear = year + 1;
 
-  // Ambil rekomendasi yang belum tuntas berdasarkan riwayat TW4.
+async function carryForwardCompletedSaldoRecommendations(
+  client: PoolClient,
+  year: number,
+  quarter: number
+) {
+  if (quarter === 4) {
+    return {
+      tahun_asal: year,
+      triwulan_asal: quarter,
+      tahun_tujuan: null,
+      triwulan_tujuan: null,
+      jumlah_rekomendasi_dibawa: 0,
+      jumlah_rekomendasi_dilewati: 0,
+      jumlah_folder_dibawa: 0,
+      keterangan: "TW4 adalah triwulan terakhir.",
+    };
+  }
+
+  const targetYear = year;
+  const targetQuarter = quarter + 1;
+
   const sourceResult = await client.query(
     `
     SELECT
-      r.*,
-      h.follow_up_status AS status_akhir,
-      h.saldo_status AS saldo_akhir
+      r.id,
+      h.id AS source_history_id,
+      h.follow_up_status,
+      h.saldo_status,
+      h.capaian
     FROM public.recommendations r
     INNER JOIN public.recommendation_quarter_history h
       ON h.recommendation_id = r.id
     WHERE h.tahun_periode = $1
-      AND h.triwulan = 4
-      AND UPPER(TRIM(h.follow_up_status))
-        IN ('BELUM_TL', 'SUDAH_TL', 'BELUM_TUNTAS', 'TL_BELUM_TUNTAS')
+      AND h.triwulan = $2
+      AND h.is_active = TRUE
+      AND h.is_finalized = TRUE
+      AND r.asal_recommendation_id IS NULL
       AND (
-        r.asal_recommendation_id IS NULL
-        OR r.asal_recommendation_id = r.id
+        UPPER(TRIM(COALESCE(h.follow_up_status, '')))
+          IN (
+            'SUDAH_TL',
+            'SUDAH_TUNTAS',
+            'BELUM_TUNTAS',
+            'TL_BELUM_TUNTAS',
+            'TL_SUDAH_TUNTAS'
+          )
+        OR UPPER(TRIM(COALESCE(h.saldo_status, ''))) = 'MASUK_SALDO'
       )
     ORDER BY r.id
-    FOR UPDATE OF r
+    FOR UPDATE OF r, h
     `,
-    [year]
+    [year, quarter]
   );
 
-  let copied = 0;
+  let moved = 0;
+  let skipped = 0;
 
   for (const item of sourceResult.rows) {
-    const insertResult = await client.query(
+    const existingResult = await client.query(
       `
-      INSERT INTO public.recommendations (
-        source,
-        category,
-        lha_number,
-        lha_date,
-        recommendation_count,
+      SELECT
+        id,
         follow_up_status,
         saldo_status,
-        description,
-        recommendation,
-        recommendation_number,
-        temuan,
         capaian,
-        keterangan_1,
-        keterangan_2,
-        keterangan_3,
-        no_temuan,
-        judul,
-        rencana_aksi,
-        keterangan_bukti_dukung,
-        waktu_pelaksanaan,
-        uic,
-        tindak_lanjut,
-        project_id,
-        tahun_periode,
-        asal_recommendation_id,
-        created_at,
-        updated_at
+        is_active,
+        is_finalized,
+        carry_forward_from_year,
+        carry_forward_from_quarter
+      FROM public.recommendation_quarter_history
+      WHERE recommendation_id = $1
+        AND tahun_periode = $2
+        AND triwulan = $3
+      FOR UPDATE
+      `,
+      [item.id, targetYear, targetQuarter]
+    );
+
+    let targetHistory: { id: number; updated_at: Date } | null = null;
+
+    let actionType: "CREATED" | "REACTIVATED";
+
+    let previous: Record<string, unknown> | null = null;
+
+    // ================================================
+    // RIWAYAT TUJUAN BELUM ADA
+    // ================================================
+
+    if (existingResult.rows.length === 0) {
+      const insertResult = await client.query(
+        `
+        INSERT INTO public.recommendation_quarter_history (
+          recommendation_id,
+          tahun_periode,
+          triwulan,
+          follow_up_status,
+          saldo_status,
+          capaian,
+          is_finalized,
+          is_active,
+          carry_forward_from_year,
+          carry_forward_from_quarter
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, FALSE, TRUE, $7, $8)
+        ON CONFLICT (recommendation_id, tahun_periode, triwulan)
+        DO NOTHING
+        RETURNING id, updated_at
+        `,
+        [
+          item.id,
+          targetYear,
+          targetQuarter,
+          item.follow_up_status,
+          item.saldo_status,
+          item.capaian,
+          year,
+          quarter,
+        ]
+      );
+
+      if (insertResult.rows.length === 0) {
+        skipped++;
+        continue;
+      }
+
+      targetHistory = insertResult.rows[0];
+      actionType = "CREATED";
+    } else {
+      const existing = existingResult.rows[0];
+
+      // Riwayat aktif atau final tidak boleh ditimpa.
+      if (existing.is_active || existing.is_finalized) {
+        skipped++;
+        continue;
+      }
+
+      // Simpan keadaan sebelumnya sebelum mengaktifkan kembali.
+      previous = {
+        follow_up_status: existing.follow_up_status,
+        saldo_status: existing.saldo_status,
+        capaian: existing.capaian,
+        carry_forward_from_year: existing.carry_forward_from_year,
+        carry_forward_from_quarter: existing.carry_forward_from_quarter,
+      };
+
+      const updateResult = await client.query(
+        `
+        UPDATE public.recommendation_quarter_history
+        SET
+          follow_up_status = $1,
+          saldo_status = $2,
+          capaian = $3,
+          is_active = TRUE,
+          carry_forward_from_year = $4,
+          carry_forward_from_quarter = $5,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = $6
+          AND is_active = FALSE
+          AND is_finalized = FALSE
+        RETURNING id, updated_at
+        `,
+        [
+          item.follow_up_status,
+          item.saldo_status,
+          item.capaian,
+          year,
+          quarter,
+          existing.id,
+        ]
+      );
+
+      if (updateResult.rows.length === 0) {
+        skipped++;
+        continue;
+      }
+
+      targetHistory = updateResult.rows[0];
+      actionType = "REACTIVATED";
+    }
+
+    if (!targetHistory) {
+      skipped++;
+      continue;
+    }
+
+    // Catat proses agar pembatalan bisa mengembalikan keadaan sebelumnya.
+    await client.query(
+      `
+      INSERT INTO public.recommendation_quarter_carry_forward (
+        source_year,
+        source_quarter,
+        target_year,
+        target_quarter,
+        source_history_id,
+        target_history_id,
+        recommendation_id,
+        target_history_updated_at,
+        action_type,
+        previous_follow_up_status,
+        previous_saldo_status,
+        previous_capaian,
+        previous_carry_forward_from_year,
+        previous_carry_forward_from_quarter,
+        applied_follow_up_status,
+        applied_saldo_status,
+        applied_capaian
       )
       VALUES (
-        $1, $2, $3, $4, $5,
-        $6, $7, $8, $9, $10,
-        $11, $12, $13, $14, $15,
-        $16, $17, $18, $19, $20,
-        $21, $22, $23, $24, $25,
-        CURRENT_TIMESTAMP,
-        CURRENT_TIMESTAMP
+        $1, $2, $3, $4, $5, $6, $7, $8, $9,
+        $10, $11, $12, $13, $14, $15, $16, $17
       )
-      ON CONFLICT (asal_recommendation_id, tahun_periode)
-      WHERE asal_recommendation_id IS NOT NULL
+      ON CONFLICT (source_history_id, target_history_id)
       DO NOTHING
-      RETURNING id
       `,
       [
-        item.source,
-        item.category,
-        item.lha_number,
-        item.lha_date,
-        item.recommendation_count,
-        item.status_akhir,
-        item.saldo_akhir,
-        item.description,
-        item.recommendation,
-        item.recommendation_number,
-        item.temuan,
+        year,
+        quarter,
+        targetYear,
+        targetQuarter,
+        item.source_history_id,
+        targetHistory.id,
+        item.id,
+        targetHistory.updated_at,
+        actionType,
+        previous?.follow_up_status ?? null,
+        previous?.saldo_status ?? null,
+        previous?.capaian ?? null,
+        previous?.carry_forward_from_year ?? null,
+        previous?.carry_forward_from_quarter ?? null,
+        item.follow_up_status,
+        item.saldo_status,
         item.capaian,
-        item.keterangan_1,
-        item.keterangan_2,
-        item.keterangan_3,
-        item.no_temuan,
-        item.judul,
-        item.rencana_aksi,
-        item.keterangan_bukti_dukung,
-        item.waktu_pelaksanaan,
-        item.uic,
-        item.tindak_lanjut,
-        item.project_id,
-        nextYear,
-        item.asal_recommendation_id ?? item.id,
       ]
     );
 
-    const newId = insertResult.rows[0]?.id;
-
-    // Jika sudah pernah disalin, jangan membuat riwayat ulang.
-    if (!newId) continue;
-
-    await client.query(
-      `
-      INSERT INTO public.recommendation_quarter_history (
-        recommendation_id,
-        tahun_periode,
-        triwulan,
-        follow_up_status,
-        saldo_status,
-        capaian,
-        is_finalized,
-        is_active,
-        carry_forward_from_year,
-        carry_forward_from_quarter,
-        created_at,
-        updated_at
-      )
-      VALUES (
-        $1, $2, 1, $3, $4, 0,
-        FALSE, TRUE, $5, 4,
-        CURRENT_TIMESTAMP,
-        CURRENT_TIMESTAMP
-      )
-      ON CONFLICT (recommendation_id, tahun_periode, triwulan)
-      DO NOTHING
-      `,
-      [newId, nextYear, item.status_akhir, item.saldo_akhir, year]
-    );
-
-    copied++;
+    moved++;
   }
-
-  // Siapkan folder LHA/LHP tahun berikutnya pada TW1.
-  await client.query(
-    `
-    INSERT INTO public.recommendation_folder_quarter (
-      source,
-      category,
-      lha_number,
-      tahun_periode,
-      triwulan,
-      triwulan_aktif,
-      created_at,
-      updated_at
-    )
-    SELECT DISTINCT
-      r.source,
-      r.category,
-      r.lha_number,
-      $2,
-      1,
-      1,
-      CURRENT_TIMESTAMP,
-      CURRENT_TIMESTAMP
-    FROM public.recommendations r
-    WHERE r.tahun_periode = $1
-      AND r.asal_recommendation_id IS NOT NULL
-    ON CONFLICT (
-      source,
-      category,
-      lha_number,
-      tahun_periode
-    )
-    DO UPDATE SET
-      triwulan = 1,
-      triwulan_aktif = 1,
-      updated_at = CURRENT_TIMESTAMP
-    `,
-    [nextYear, nextYear]
-  );
 
   return {
     tahun_asal: year,
-    tahun_tujuan: nextYear,
-    jumlah_dibawa: copied,
+    triwulan_asal: quarter,
+    tahun_tujuan: targetYear,
+    triwulan_tujuan: targetQuarter,
+    jumlah_rekomendasi_dibawa: moved,
+    jumlah_rekomendasi_dilewati: skipped,
+    jumlah_folder_dibawa: 0,
   };
 }
-
 // POST: melakukan finalisasi dan menyimpan snapshot triwulan.
 export async function POST(request: Request) {
   const client = await pool.connect();
@@ -929,6 +1129,7 @@ export async function POST(request: Request) {
   try {
     await ensureQuarterHistoryTable();
     await ensureQuarterSnapshotTable();
+    await ensureCarryForwardTrackingTable();
 
     const body = await request.json();
 
@@ -964,7 +1165,8 @@ export async function POST(request: Request) {
       | "rumus_triwulan_4";
 
     const rumusTriwulan =
-      String(rumusTersimpan?.[rumusKey] ?? "").trim() || RUMUS_TRIWULAN_DEFAULT;
+      String(rumusTersimpan?.[rumusKey] ?? "").trim() ||
+      getDefaultRumusTriwulan(triwulan as 1 | 2 | 3 | 4);
 
     await client.query("BEGIN");
     transactionStarted = true;
@@ -979,6 +1181,7 @@ export async function POST(request: Request) {
       FROM public.recommendation_quarter_history
       WHERE tahun_periode = $1
         AND triwulan = $2
+        AND is_active = TRUE
       FOR UPDATE
       `,
       [year, triwulan]
@@ -988,71 +1191,76 @@ export async function POST(request: Request) {
     const summaryResult = await client.query(
       `
       SELECT
+        COUNT(*)::int AS total_rekomendasi,
+    
         COUNT(*) FILTER (
-          WHERE UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
+          WHERE UPPER(TRIM(COALESCE(h.saldo_status, ''))) = 'MASUK_SALDO'
         )::int AS saldo,
-
+    
         COUNT(*) FILTER (
-          WHERE UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
-            AND UPPER(TRIM(COALESCE(follow_up_status, ''))) = 'BELUM_TL'
+          WHERE UPPER(TRIM(COALESCE(h.saldo_status, ''))) = 'MASUK_SALDO'
+            AND UPPER(TRIM(COALESCE(h.follow_up_status, ''))) = 'BELUM_TL'
         )::int AS belum_tl,
-
+    
         COUNT(*) FILTER (
-          WHERE UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
-            AND UPPER(TRIM(COALESCE(follow_up_status, '')))
+          WHERE UPPER(TRIM(COALESCE(h.saldo_status, ''))) = 'MASUK_SALDO'
+            AND UPPER(TRIM(COALESCE(h.follow_up_status, '')))
               IN ('SUDAH_TL', 'BELUM_TUNTAS', 'TL_BELUM_TUNTAS')
         )::int AS tl_belum_tuntas,
-
+    
         COUNT(*) FILTER (
-          WHERE UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
-            AND UPPER(TRIM(COALESCE(follow_up_status, '')))
+          WHERE UPPER(TRIM(COALESCE(h.saldo_status, ''))) = 'MASUK_SALDO'
+            AND UPPER(TRIM(COALESCE(h.follow_up_status, '')))
               IN ('SUDAH_TUNTAS', 'TL_SUDAH_TUNTAS')
         )::int AS tl_sudah_tuntas
-
-      FROM public.recommendation_quarter_history
-      WHERE tahun_periode = $1
-        AND triwulan = $2
+    
+      FROM public.recommendation_quarter_history h
+      INNER JOIN public.recommendations r
+        ON r.id = h.recommendation_id
+    
+      WHERE h.tahun_periode = $1
+        AND h.triwulan = $2
+        AND h.is_active = TRUE
+        AND r.asal_recommendation_id IS NULL
       `,
       [year, triwulan]
     );
 
     const summary = summaryResult.rows[0];
 
+    const totalRekomendasi = Number(summary?.total_rekomendasi ?? 0);
+
     const saldo = Number(summary?.saldo ?? 0);
     const belumTL = Number(summary?.belum_tl ?? 0);
     const tlBelumTuntas = Number(summary?.tl_belum_tuntas ?? 0);
     const tlSudahTuntas = Number(summary?.tl_sudah_tuntas ?? 0);
 
-    if (saldo === 0) {
-      throw new Error(
-        `Belum ada rekomendasi masuk saldo pada Triwulan ${triwulan}.`
-      );
-    }
-
-    // Hitung capaian dasar.
-    const capaianDasar = hitungRumusIndeks(
-      normalizePercentLiterals(rumusDasar),
-      {
-        capaian: 0,
-        saldo,
-        belum_tl: belumTL,
-        tl_belum_tuntas: tlBelumTuntas,
-        tl_sudah_tuntas: tlSudahTuntas,
-      }
-    );
+    const capaianDasar =
+      totalRekomendasi > 0
+        ? hitungRumusIndeks(normalizePercentLiterals(rumusDasar), {
+            capaian: 0,
+            saldo: totalRekomendasi,
+            belum_tl: belumTL,
+            tl_belum_tuntas: tlBelumTuntas,
+            tl_sudah_tuntas: tlSudahTuntas,
+          })
+        : 0;
 
     if (!Number.isFinite(capaianDasar)) {
       throw new Error("Perhitungan capaian dasar tidak valid.");
     }
 
     // Hitung persentase akhir sesuai rumus triwulan.
-    const capaian = hitungRumusIndeks(normalizePercentLiterals(rumusTriwulan), {
-      capaian: capaianDasar,
-      saldo,
-      belum_tl: belumTL,
-      tl_belum_tuntas: tlBelumTuntas,
-      tl_sudah_tuntas: tlSudahTuntas,
-    });
+    const capaian =
+      totalRekomendasi > 0
+        ? hitungRumusIndeks(normalizePercentLiterals(rumusTriwulan), {
+            capaian: capaianDasar,
+            saldo: totalRekomendasi,
+            belum_tl: belumTL,
+            tl_belum_tuntas: tlBelumTuntas,
+            tl_sudah_tuntas: tlSudahTuntas,
+          })
+        : 0;
 
     if (!Number.isFinite(capaian)) {
       throw new Error(`Perhitungan Triwulan ${triwulan} tidak valid.`);
@@ -1061,33 +1269,35 @@ export async function POST(request: Request) {
     // Simpan snapshot secara permanen.
     const snapshotResult = await client.query(
       `
-      INSERT INTO public.dashboard_capaian_triwulan (
-        tahun,
-        triwulan,
-        total_masuk_saldo,
-        belum_tl,
-        tl_belum_tuntas,
-        tl_sudah_tuntas,
-        capaian_dasar,
-        capaian_persen,
-        rumus_digunakan,
-        rumus_dasar_digunakan,
-        is_finalized,
-        finalized_at,
-        updated_at
-      )
+    INSERT INTO public.dashboard_capaian_triwulan (
+  tahun,
+  triwulan,
+  total_rekomendasi,
+  total_masuk_saldo,
+  belum_tl,
+  tl_belum_tuntas,
+  tl_sudah_tuntas,
+  capaian_dasar,
+  capaian_persen,
+  rumus_digunakan,
+  rumus_dasar_digunakan,
+  is_finalized,
+  finalized_at,
+  updated_at
+)
       VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-        TRUE,
-        CURRENT_TIMESTAMP,
-        CURRENT_TIMESTAMP
-      )
+  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+  TRUE,
+  CURRENT_TIMESTAMP,
+  CURRENT_TIMESTAMP
+)
       ON CONFLICT (tahun, triwulan) DO NOTHING
       RETURNING *
       `,
       [
         year,
         triwulan,
+        totalRekomendasi,
         saldo,
         belumTL,
         tlBelumTuntas,
@@ -1107,24 +1317,21 @@ export async function POST(request: Request) {
     // Kunci seluruh riwayat pada triwulan yang sudah difinalisasi.
     await client.query(
       `
-  UPDATE public.recommendation_quarter_history
-  SET
-    is_finalized = TRUE,
-    updated_at = CURRENT_TIMESTAMP
-  WHERE tahun_periode = $1
-    AND triwulan = $2
+      UPDATE public.recommendation_quarter_history
+      SET is_finalized = TRUE
+      WHERE tahun_periode = $1
+        AND triwulan = $2
+        AND is_active = TRUE
   `,
       [year, triwulan]
     );
-    // Jika TW4 difinalisasi, bawa rekomendasi belum selesai ke tahun berikutnya.
-    let carryForwardResult = null;
-
-    if (triwulan === 4) {
-      carryForwardResult = await carryForwardUnfinishedRecommendations(
-        client,
-        year
-      );
-    }
+    // Bawa rekomendasi yang sudah tuntas dan masuk saldo
+    // ke triwulan berikutnya. TW4 tidak melakukan carry forward.
+    const carryForwardResult = await carryForwardCompletedSaldoRecommendations(
+      client,
+      year,
+      triwulan
+    );
     await client.query("COMMIT");
     transactionStarted = false;
 
@@ -1152,6 +1359,226 @@ export async function POST(request: Request) {
           error instanceof Error
             ? error.message
             : "Gagal melakukan finalisasi triwulan.",
+      },
+      { status: 400 }
+    );
+  } finally {
+    client.release();
+  }
+}
+// DELETE: membatalkan finalisasi triwulan secara aman.
+export async function DELETE(request: Request) {
+  const client = await pool.connect();
+  let transactionStarted = false;
+
+  try {
+    await ensureQuarterHistoryTable();
+    await ensureQuarterSnapshotTable();
+    await ensureCarryForwardTrackingTable();
+
+    const body = await request.json();
+
+    const year = Number(body.year);
+    const quarter = Number(body.triwulan);
+
+    if (
+      !Number.isInteger(year) ||
+      year < 1900 ||
+      year > 9998 ||
+      !Number.isInteger(quarter) ||
+      quarter < 1 ||
+      quarter > 4
+    ) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: "Tahun atau pilihan triwulan tidak valid.",
+        },
+        { status: 400 }
+      );
+    }
+
+    await client.query("BEGIN");
+    transactionStarted = true;
+
+    // Gunakan kunci yang sama dengan proses finalisasi.
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+      `${year}:${quarter}`,
+    ]);
+
+    // Pastikan snapshot memang sudah difinalisasi.
+    const snapshotResult = await client.query(
+      `
+      SELECT id
+      FROM public.dashboard_capaian_triwulan
+      WHERE tahun = $1
+        AND triwulan = $2
+        AND is_finalized = TRUE
+      FOR UPDATE
+      `,
+      [year, quarter]
+    );
+
+    if (snapshotResult.rows.length === 0) {
+      throw new Error(`TW${quarter} tahun ${year} belum difinalisasi.`);
+    }
+
+    // Jangan membatalkan triwulan sebelumnya jika
+    // ada triwulan setelahnya yang sudah difinalisasi.
+    const laterSnapshotResult = await client.query(
+      `
+      SELECT triwulan
+      FROM public.dashboard_capaian_triwulan
+      WHERE tahun = $1
+        AND triwulan > $2
+        AND is_finalized = TRUE
+      ORDER BY triwulan ASC
+      LIMIT 1
+      `,
+      [year, quarter]
+    );
+
+    if (laterSnapshotResult.rows.length > 0) {
+      const laterQuarter = Number(laterSnapshotResult.rows[0].triwulan);
+
+      throw new Error(
+        `Pembatalan TW${quarter} tidak dapat dilakukan karena TW${laterQuarter} sudah difinalisasi. Batalkan finalisasi TW${laterQuarter} terlebih dahulu.`
+      );
+    }
+
+    // Nonaktifkan hanya riwayat tujuan yang:
+    // 1. Benar-benar dibuat oleh carry-forward ini.
+    // 2. Belum diedit setelah dibuat.
+    // 3. Belum difinalisasi.
+
+    // =====================================================
+    // 1. NONAKTIFKAN RIWAYAT YANG DIBUAT BARU
+    // =====================================================
+
+    const createdResult = await client.query(
+      `
+  UPDATE public.recommendation_quarter_history h
+  SET is_active = FALSE
+  FROM public.recommendation_quarter_carry_forward cf
+  WHERE cf.source_year = $1
+    AND cf.source_quarter = $2
+    AND cf.target_history_id = h.id
+    AND cf.action_type = 'CREATED'
+    AND h.is_active = TRUE
+    AND h.is_finalized = FALSE
+    AND h.follow_up_status
+    IS NOT DISTINCT FROM cf.applied_follow_up_status
+AND h.saldo_status
+    IS NOT DISTINCT FROM cf.applied_saldo_status
+AND h.capaian
+    IS NOT DISTINCT FROM cf.applied_capaian
+  `,
+      [year, quarter]
+    );
+
+    // =====================================================
+    // 2. PULIHKAN RIWAYAT YANG DIAKTIFKAN KEMBALI
+    // =====================================================
+
+    const reactivatedResult = await client.query(
+      `
+  UPDATE public.recommendation_quarter_history h
+  SET
+    follow_up_status = cf.previous_follow_up_status,
+    saldo_status = cf.previous_saldo_status,
+    capaian = cf.previous_capaian,
+    is_active = FALSE,
+    carry_forward_from_year =
+      cf.previous_carry_forward_from_year,
+    carry_forward_from_quarter =
+      cf.previous_carry_forward_from_quarter
+  FROM public.recommendation_quarter_carry_forward cf
+  WHERE cf.source_year = $1
+    AND cf.source_quarter = $2
+    AND cf.target_history_id = h.id
+    AND cf.action_type = 'REACTIVATED'
+    AND h.is_active = TRUE
+    AND h.is_finalized = FALSE
+    AND h.follow_up_status
+  IS NOT DISTINCT FROM cf.applied_follow_up_status
+AND h.saldo_status
+  IS NOT DISTINCT FROM cf.applied_saldo_status
+AND h.capaian
+  IS NOT DISTINCT FROM cf.applied_capaian
+  `,
+      [year, quarter]
+    );
+
+    const deactivateResult = {
+      rowCount:
+        Number(createdResult.rowCount ?? 0) +
+        Number(reactivatedResult.rowCount ?? 0),
+    };
+
+    // Riwayat sumber dikembalikan menjadi belum final.
+    // Data status dan capaian tidak diubah.
+    const sourceResult = await client.query(
+      `
+      UPDATE public.recommendation_quarter_history
+      SET is_finalized = FALSE
+      WHERE tahun_periode = $1
+        AND triwulan = $2
+        AND is_active = TRUE
+        AND is_finalized = TRUE
+      `,
+      [year, quarter]
+    );
+
+    // Hapus catatan carry-forward milik finalisasi ini.
+    await client.query(
+      `
+      DELETE FROM public.recommendation_quarter_carry_forward
+      WHERE source_year = $1
+        AND source_quarter = $2
+      `,
+      [year, quarter]
+    );
+
+    // Hapus snapshot supaya triwulan dapat difinalisasi ulang.
+    await client.query(
+      `
+      DELETE FROM public.dashboard_capaian_triwulan
+      WHERE tahun = $1
+        AND triwulan = $2
+        AND is_finalized = TRUE
+      `,
+      [year, quarter]
+    );
+
+    await client.query("COMMIT");
+    transactionStarted = false;
+
+    return NextResponse.json({
+      ok: true,
+      message: `Finalisasi TW${quarter} tahun ${year} berhasil dibatalkan.`,
+      data: {
+        riwayat_sumber_dikembalikan: sourceResult.rowCount ?? 0,
+        riwayat_otomatis_dinonaktifkan: deactivateResult.rowCount ?? 0,
+      },
+    });
+  } catch (error) {
+    if (transactionStarted) {
+      try {
+        await client.query("ROLLBACK");
+      } catch (rollbackError) {
+        console.error("ROLLBACK PEMBATALAN ERROR:", rollbackError);
+      }
+    }
+
+    console.error("PEMBATALAN FINALISASI ERROR:", error);
+
+    return NextResponse.json(
+      {
+        ok: false,
+        message:
+          error instanceof Error
+            ? error.message
+            : "Gagal membatalkan finalisasi triwulan.",
       },
       { status: 400 }
     );

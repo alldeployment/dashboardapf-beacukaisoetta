@@ -11,6 +11,7 @@ type RecommendationItem = {
   waktuPelaksanaan: string;
   uic: string;
   tindakLanjut: string;
+  triwulan: string;
 
   followUpStatus: string;
   saldoStatus: string;
@@ -25,6 +26,7 @@ type RecommendationItem = {
 
 type Recommendation = {
   id: number;
+  tahun_riwayat?: number | null;
   source: string;
   category: string;
   lha_number: string;
@@ -57,6 +59,7 @@ type LhpFolder = {
   lha_date: string;
   items: Recommendation[];
   capaian: number;
+  triwulan?: number | null;
 };
 
 type Props = {
@@ -80,6 +83,7 @@ const emptyItem = (): RecommendationItem => ({
   waktuPelaksanaan: "",
   uic: "",
   tindakLanjut: "",
+  triwulan: "",
 
   followUpStatus: "BELUM_TL",
   saldoStatus: "BELUM_SALDO",
@@ -116,7 +120,8 @@ export default function RecommendationForm({
   const [tahunPeriode, setTahunPeriode] = useState(
     String(selectedYear ?? new Date().getFullYear())
   );
-  const [triwulan, setTriwulan] = useState("");
+  const [folderTriwulan, setFolderTriwulan] = useState("");
+
   const [items, setItems] = useState<RecommendationItem[]>([emptyItem()]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -135,7 +140,8 @@ export default function RecommendationForm({
             new Date().getFullYear()
         )
       );
-      setTriwulan(String(initialFolder.items?.[0]?.folder_triwulan ?? ""));
+      setFolderTriwulan(String(initialFolder.triwulan ?? ""));
+
       setItems([emptyItem()]);
       setMessage("");
       return;
@@ -148,7 +154,8 @@ export default function RecommendationForm({
       setLhaNumber("");
       setLhaDate("");
       setTahunPeriode(String(selectedYear ?? new Date().getFullYear()));
-      setTriwulan("");
+      setFolderTriwulan("");
+
       setItems([emptyItem()]);
       setMessage("");
       return;
@@ -162,7 +169,8 @@ export default function RecommendationForm({
     setTahunPeriode(
       String(editingData.tahun_periode ?? new Date().getFullYear())
     );
-    setTriwulan(String(editingData.triwulan ?? ""));
+
+    setFolderTriwulan(String(editingData.folder_triwulan ?? ""));
     setItems([
       {
         noTemuan: editingData.no_temuan || "",
@@ -174,6 +182,7 @@ export default function RecommendationForm({
         tindakLanjut: editingData.tindak_lanjut || "",
         followUpStatus: editingData.follow_up_status || "BELUM_TL",
         saldoStatus: editingData.saldo_status || "BELUM_SALDO",
+        triwulan: String(editingData.triwulan ?? ""),
         temuan: editingData.temuan || "",
         recommendation: editingData.recommendation || "",
         keterangan_1: editingData.keterangan_1 || "",
@@ -225,8 +234,20 @@ export default function RecommendationForm({
     if (items.length === 0) {
       return "Minimal harus ada satu rekomendasi.";
     }
-    if (!["1", "2", "3", "4"].includes(triwulan)) {
-      return "Triwulan LHA / LHP wajib dipilih.";
+    // Triwulan folder wajib dipilih ketika membuat LHP/LHA.
+    if (!isEditing && !["1", "2", "3", "4"].includes(folderTriwulan)) {
+      return "Triwulan folder LHP/LHA wajib dipilih.";
+    }
+
+    // Triwulan individual opsional.
+    // Jika diisi, nilainya harus valid.
+    const hasInvalidQuarter = items.some(
+      (item) =>
+        item.triwulan !== "" && !["1", "2", "3", "4"].includes(item.triwulan)
+    );
+
+    if (hasInvalidQuarter) {
+      return "Pilihan triwulan rekomendasi tidak valid.";
     }
     const hasIncompleteItem = items.some(
       (item) =>
@@ -264,13 +285,16 @@ export default function RecommendationForm({
       lhaNumber: lhaNumber.trim(),
       lhaDate,
       tahun_periode: Number(tahunPeriode),
-      triwulan: Number(triwulan),
     };
 
     const body = isEditing
       ? {
           id: editingData!.id,
           ...commonData,
+
+          // Periode dan triwulan riwayat yang sedang diedit.
+          tahun_riwayat: editingData!.tahun_riwayat ?? selectedYear,
+          triwulan_riwayat: editingData!.triwulan ?? null,
 
           // DATA BARU
           no_temuan: items[0].noTemuan.trim(),
@@ -295,6 +319,9 @@ export default function RecommendationForm({
       : {
           ...commonData,
 
+          // Triwulan utama folder LHP/LHA.
+          triwulan: Number(folderTriwulan),
+
           recommendations: items.map((item) => ({
             // DATA BARU
             no_temuan: item.noTemuan.trim(),
@@ -304,6 +331,7 @@ export default function RecommendationForm({
             waktu_pelaksanaan: item.waktuPelaksanaan || null,
             uic: item.uic.trim(),
             tindak_lanjut: item.tindakLanjut.trim(),
+            triwulan: item.triwulan ? Number(item.triwulan) : null,
 
             // STATUS TETAP DIPERTAHANKAN
             followUpStatus: item.followUpStatus,
@@ -354,7 +382,6 @@ export default function RecommendationForm({
         setLhaDate("");
         setTahunPeriode(String(selectedYear ?? new Date().getFullYear()));
         setItems([emptyItem()]);
-        setTriwulan("");
       }
 
       onSaved();
@@ -490,6 +517,34 @@ export default function RecommendationForm({
                   disabled={loading || Boolean(initialFolder)}
                 />
                 {/* TAHUN PERIODE MONITORING */}
+                {/* TRIWULAN FOLDER */}
+                <div className="mt-5">
+                  <label htmlFor="folderTriwulan" className={labelClass}>
+                    Triwulan Folder LHP / LHA{" "}
+                    <span className="text-red-500">*</span>
+                  </label>
+
+                  <select
+                    id="folderTriwulan"
+                    required
+                    value={folderTriwulan}
+                    onChange={(event) => setFolderTriwulan(event.target.value)}
+                    className={selectClass}
+                    disabled={loading || Boolean(initialFolder)}
+                  >
+                    <option value="">Pilih Triwulan Folder</option>
+                    <option value="1">Triwulan I</option>
+                    <option value="2">Triwulan II</option>
+                    <option value="3">Triwulan III</option>
+                    <option value="4">Triwulan IV</option>
+                  </select>
+
+                  <p className="mt-1 text-xs text-slate-500">
+                    {initialFolder
+                      ? "Mengikuti triwulan folder yang sudah dipilih."
+                      : "Tentukan triwulan untuk folder LHP/LHA ini."}
+                  </p>
+                </div>
                 <div>
                   <label htmlFor="tahunPeriode" className={labelClass}>
                     Tahun Periode Monitoring{" "}
@@ -512,32 +567,6 @@ export default function RecommendationForm({
 
                   <p className="mt-1 text-xs text-slate-500">
                     Tahun monitoring, terpisah dari tanggal LHA / LHP.
-                  </p>
-                </div>
-                {/* TRIWULAN LHA / LHP */}
-                <div>
-                  <label htmlFor="triwulan" className={labelClass}>
-                    Triwulan <span className="text-red-500">*</span>
-                  </label>
-
-                  <select
-                    id="triwulan"
-                    required
-                    value={triwulan}
-                    onChange={(event) => setTriwulan(event.target.value)}
-                    className={selectClass}
-                    disabled={loading}
-                  >
-                    <option value="">Pilih Triwulan</option>
-                    <option value="1">Triwulan 1</option>
-                    <option value="2">Triwulan 2</option>
-                    <option value="3">Triwulan 3</option>
-                    <option value="4">Triwulan 4</option>
-                  </select>
-
-                  <p className="mt-1 text-xs text-slate-500">
-                    Pilihan ini berlaku untuk seluruh rekomendasi dalam LHA /
-                    LHP.
                   </p>
                 </div>
               </div>
@@ -784,17 +813,47 @@ export default function RecommendationForm({
 
                     {/* STATUS */}
 
-                    <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                    {/* TRIWULAN DAN STATUS */}
+
+                    <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+                      <div>
+                        <label
+                          htmlFor={`triwulan-${index}`}
+                          className={labelClass}
+                        >
+                          Triwulan (Opsional)
+                        </label>
+
+                        <select
+                          id={`triwulan-${index}`}
+                          required
+                          value={item.triwulan}
+                          onChange={(event) =>
+                            updateItem(index, "triwulan", event.target.value)
+                          }
+                          className={selectClass}
+                          disabled={loading}
+                        >
+                          <option value="">Pilih Triwulan</option>
+                          <option value="1">Triwulan I</option>
+                          <option value="2">Triwulan II</option>
+                          <option value="3">Triwulan III</option>
+                          <option value="4">Triwulan IV</option>
+                        </select>
+                      </div>
+                      {/* STATUS TINDAK LANJUT */}
                       <div>
                         <label
                           htmlFor={`followUpStatus-${index}`}
                           className={labelClass}
                         >
                           Status Tindak Lanjut
+                          <span className="text-red-500"> *</span>
                         </label>
 
                         <select
                           id={`followUpStatus-${index}`}
+                          required
                           value={item.followUpStatus}
                           onChange={(event) =>
                             updateItem(
@@ -807,13 +866,10 @@ export default function RecommendationForm({
                           disabled={loading}
                         >
                           <option value="BELUM_TL">Belum Tindak Lanjut</option>
-
                           <option value="SUDAH_TL">Sudah Tindak Lanjut</option>
-
                           <option value="SUDAH_TUNTAS">Sudah Tuntas</option>
                         </select>
                       </div>
-
                       <div>
                         <label
                           htmlFor={`saldoStatus-${index}`}
