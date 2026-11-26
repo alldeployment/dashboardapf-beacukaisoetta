@@ -195,22 +195,13 @@ export default function BpkPage() {
    * FILTER DATA
    */
   const filteredData = useMemo(() => {
-    console.table(
-      data.map((item) => ({
-        id: item.id,
-        kategori_asli: item.category,
-        kategori_filter: categoryFilter,
-        status_asli: item.saldo_status,
-        hasil_normalisasi: normalizeCategory(item.category),
-      }))
-    );
-    const keyword = search.toLowerCase().trim();
-
     const normalizeCategory = (value: string | null | undefined) =>
       (value ?? "")
         .trim()
         .toUpperCase()
         .replace(/[\s-]+/g, "_");
+
+    const keyword = search.toLowerCase().trim();
 
     return data.filter((item) => {
       const matchesSearch =
@@ -869,9 +860,9 @@ export default function BpkPage() {
                   className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700 outline-none transition focus:border-[#D4A72C] focus:bg-white"
                 >
                   <option value="ALL">Semua Kategori</option>
-                  <option value="Laporan Keuangan">Keuangan</option>
-                  <option value="Bukan Keuangan">Bukan Keuangan</option>
-                  <option value="Tindak Lanjut Pemeriksaan">
+                  <option value="KEUANGAN">Keuangan</option>
+                  <option value="BUKAN_KEUANGAN">Bukan Keuangan</option>
+                  <option value="TINDAK_LANJUT">
                     Tindak Lanjut Pemeriksaan
                   </option>
                 </select>
