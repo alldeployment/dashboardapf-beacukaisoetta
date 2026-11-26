@@ -238,9 +238,6 @@ export default function RecommendationForm({
     if (!isEditing && !["1", "2", "3", "4"].includes(folderTriwulan)) {
       return "Triwulan folder LHP/LHA wajib dipilih.";
     }
-    if (isEditing && !["1", "2", "3", "4"].includes(items[0]?.triwulan ?? "")) {
-      return "Pilih triwulan tujuan terlebih dahulu.";
-    }
 
     // Triwulan individual opsional.
     // Jika diisi, nilainya harus valid.
@@ -828,7 +825,7 @@ export default function RecommendationForm({
                           htmlFor={`triwulan-${index}`}
                           className={labelClass}
                         >
-                          {isEditing ? "Pilih Triwulan" : "Triwulan (Opsional)"}
+                          Triwulan (Opsional)
                         </label>
 
                         <select

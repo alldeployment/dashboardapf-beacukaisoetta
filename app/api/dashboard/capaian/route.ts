@@ -1257,13 +1257,15 @@ async function carryForwardUnfinishedRecommendations(
           'BELUM_TUNTAS',
           'TL_BELUM_TUNTAS'
         )
-    ON CONFLICT (
-      source,
-      category,
-      lha_number,
-      tahun_periode
-    )
-    DO NOTHING
+        ON CONFLICT (
+          source,
+          category,
+          lha_number,
+          tahun_periode
+        )
+        DO UPDATE SET
+          triwulan_aktif = EXCLUDED.triwulan_aktif,
+          updated_at = CURRENT_TIMESTAMP
     `,
     [year, quarter, targetYear, targetQuarter]
   );
