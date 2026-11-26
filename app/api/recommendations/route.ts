@@ -292,10 +292,34 @@ export async function GET(request: NextRequest) {
   current_rec.asal_recommendation_id IS NULL
 `);
 
-    // Jika tahun atau triwulan dipilih, rekomendasi harus
-    // memiliki riwayat pada periode yang sedang dibuka.
-    if (selectedYear !== null || selectedTriwulan !== null) {
-      conditions.push("quarter_history.id IS NOT NULL");
+    // Filter berdasarkan tahun pengelolaan rekomendasi.
+    if (selectedYear !== null) {
+      conditions.push("current_rec.tahun_periode = $2::INTEGER");
+    }
+
+    // Jika memilih triwulan:
+    // - Gunakan riwayat individu jika tersedia.
+    // - Jika belum memiliki riwayat, gunakan triwulan aktif folder.
+    // - Jangan menimpa riwayat individu dengan triwulan folder.
+    if (selectedTriwulan !== null) {
+      conditions.push(`
+        (
+          quarter_history.triwulan = $1::SMALLINT
+          OR (
+            NOT EXISTS (
+              SELECT 1
+              FROM public.recommendation_quarter_history existing_history
+              WHERE existing_history.recommendation_id = current_rec.id
+                AND existing_history.tahun_periode = COALESCE(
+                  $2::INTEGER,
+                  current_rec.tahun_periode
+                )
+                AND existing_history.is_active = TRUE
+            )
+            AND folder_quarter.triwulan_aktif = $1::SMALLINT
+          )
+        )
+      `);
     }
     let query = `
     SELECT
