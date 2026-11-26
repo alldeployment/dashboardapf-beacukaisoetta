@@ -361,7 +361,9 @@ export default function DashboardPage() {
   async function closeYearAndCarryForward() {
     const confirmed = window.confirm(
       `Finalisasi TW4 tahun ${selectedYear}?\n\n` +
-        `TW4 merupakan triwulan terakhir. Tidak ada rekomendasi yang otomatis dibawa ke tahun berikutnya.\n\n` +
+        `Rekomendasi yang belum selesai akan dibawa ke TW1 tahun ${
+          selectedYear + 1
+        }. Rekomendasi SUDAH_TUNTAS tidak akan dibawa.\n\n` +
         `Apakah kamu yakin ingin melanjutkan?`
     );
 
@@ -391,7 +393,9 @@ export default function DashboardPage() {
 
       alert(
         `TW4 tahun ${selectedYear} berhasil difinalisasi.\n\n` +
-          `Tidak ada rekomendasi yang dibawa ke tahun berikutnya.`
+          `${
+            result?.carry_forward?.jumlah_rekomendasi_dibawa ?? 0
+          } rekomendasi belum selesai dibawa ke TW1 tahun ${selectedYear + 1}.`
       );
     } catch (error) {
       console.error("FINALISASI TW4:", error);
@@ -432,6 +436,7 @@ export default function DashboardPage() {
       });
 
       const result = await response.json();
+      console.log("HASIL FINALISASI API:", response.status, result);
 
       if (!response.ok || result?.ok === false) {
         throw new Error(result?.message || `Gagal finalisasi TW${quarter}.`);

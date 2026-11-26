@@ -27,6 +27,9 @@ type Recommendation = {
   tindak_lanjut?: string | null;
 
   created_at?: string;
+  triwulan?: number | null;
+  folder_triwulan?: number | null;
+  folder_triwulan_aktif?: number | null;
 };
 type Summary = {
   total: number;
@@ -192,25 +195,38 @@ export default function BpkPage() {
    * FILTER DATA
    */
   const filteredData = useMemo(() => {
+    console.table(
+      data.map((item) => ({
+        id: item.id,
+        kategori_asli: item.category,
+        kategori_filter: categoryFilter,
+        status_asli: item.saldo_status,
+        hasil_normalisasi: normalizeCategory(item.category),
+      }))
+    );
     const keyword = search.toLowerCase().trim();
+
+    const normalizeCategory = (value: string | null | undefined) =>
+      (value ?? "")
+        .trim()
+        .toUpperCase()
+        .replace(/[\s-]+/g, "_");
 
     return data.filter((item) => {
       const matchesSearch =
         !keyword ||
-        item.lha_number.toLowerCase().includes(keyword) ||
-        item.category.toLowerCase().includes(keyword) ||
-        (item.description || "").toLowerCase().includes(keyword);
+        (item.lha_number ?? "").toLowerCase().includes(keyword) ||
+        (item.category ?? "").toLowerCase().includes(keyword) ||
+        (item.description ?? "").toLowerCase().includes(keyword);
 
       const matchesStatus =
-        statusFilter === "ALL" || item.saldo_status === statusFilter;
-
-      const normalizeCategory = (value: string | null | undefined) => {
-        return (value || "").trim().toLowerCase().replace(/\s+/g, " ");
-      };
+        statusFilter === "ALL" ||
+        (item.saldo_status ?? "").trim().toUpperCase() === statusFilter;
 
       const matchesCategory =
         categoryFilter === "ALL" ||
         normalizeCategory(item.category) === normalizeCategory(categoryFilter);
+
       return matchesSearch && matchesStatus && matchesCategory;
     });
   }, [data, search, statusFilter, categoryFilter]);
@@ -853,7 +869,7 @@ export default function BpkPage() {
                   className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700 outline-none transition focus:border-[#D4A72C] focus:bg-white"
                 >
                   <option value="ALL">Semua Kategori</option>
-                  <option value="Laporan Keuangan">Laporan Keuangan</option>
+                  <option value="Laporan Keuangan">Keuangan</option>
                   <option value="Bukan Keuangan">Bukan Keuangan</option>
                   <option value="Tindak Lanjut Pemeriksaan">
                     Tindak Lanjut Pemeriksaan
@@ -929,6 +945,9 @@ export default function BpkPage() {
                     <th className="px-6 py-4 text-center text-[10px] font-bold uppercase tracking-wider text-slate-400">
                       No. Temuan
                     </th>
+                    <th className="px-6 py-4 text-center text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Triwulan
+                    </th>
 
                     <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">
                       Tindak Lanjut
@@ -995,6 +1014,20 @@ export default function BpkPage() {
                       <td className="px-6 py-5 text-center">
                         <span className="inline-flex h-9 min-w-9 items-center justify-center rounded-xl bg-[#071426] px-3 text-sm font-bold text-white">
                           {item.no_temuan || "-"}
+                        </span>
+                      </td>
+                      <td className="px-6 py-5 text-center">
+                        <span className="inline-flex rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700">
+                          {(() => {
+                            const quarter =
+                              item.triwulan ??
+                              item.folder_triwulan_aktif ??
+                              item.folder_triwulan;
+
+                            return quarter
+                              ? `TW ${quarter}`
+                              : "Belum Ditentukan";
+                          })()}
                         </span>
                       </td>
 

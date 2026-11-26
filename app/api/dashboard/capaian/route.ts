@@ -941,10 +941,10 @@ async function createFolderFallbackHistory(
       updated_at
     )
     SELECT
-      r.id,
-      $1,
-      $2,
-      COALESCE(NULLIF(TRIM(r.follow_up_status), ''), 'BELUM_TL'),
+    r.id,
+    $1::INTEGER,
+    $2::SMALLINT,
+    COALESCE(NULLIF(TRIM(r.follow_up_status), ''), 'BELUM_TL'),
       COALESCE(NULLIF(TRIM(r.saldo_status), ''), 'BELUM_SALDO'),
       FALSE,
       TRUE,
@@ -962,6 +962,7 @@ async function createFolderFallbackHistory(
     WHERE r.asal_recommendation_id IS NULL
       AND r.tahun_periode = $1
       AND fq.triwulan_aktif = $2
+     
 
       AND NOT EXISTS (
         SELECT 1
@@ -998,31 +999,24 @@ async function createFolderFallbackHistory(
   return Number(result.rowCount ?? 0);
 }
 
-async function carryForwardCompletedSaldoRecommendations(
+async function carryForwardUnfinishedRecommendations(
   client: PoolClient,
   year: number,
   quarter: number
 ) {
-  if (quarter === 4) {
-    return {
-      tahun_asal: year,
-      triwulan_asal: quarter,
-      tahun_tujuan: null,
-      triwulan_tujuan: null,
-      jumlah_rekomendasi_dibawa: 0,
-      jumlah_rekomendasi_dilewati: 0,
-      jumlah_folder_dibawa: 0,
-      keterangan: "TW4 adalah triwulan terakhir.",
-    };
-  }
+  // TW1-TW3 menuju triwulan berikutnya.
+  // TW4 menuju TW1 tahun berikutnya.
+  const targetYear = quarter === 4 ? year + 1 : year;
+  const targetQuarter = quarter === 4 ? 1 : quarter + 1;
 
-  const targetYear = year;
-  const targetQuarter = quarter + 1;
-
+  // Ambil rekomendasi yang belum selesai dari riwayat sumber.
   const sourceResult = await client.query(
     `
     SELECT
       r.id,
+      r.source,
+      r.category,
+      r.lha_number,
       h.id AS source_history_id,
       h.follow_up_status,
       h.saldo_status,
@@ -1036,12 +1030,12 @@ async function carryForwardCompletedSaldoRecommendations(
       AND h.is_finalized = TRUE
       AND r.asal_recommendation_id IS NULL
       AND UPPER(TRIM(COALESCE(h.follow_up_status, '')))
-      IN (
-        'BELUM_TL',
-        'SUDAH_TL',
-        'BELUM_TUNTAS',
-        'TL_BELUM_TUNTAS'
-      )
+        IN (
+          'BELUM_TL',
+          'SUDAH_TL',
+          'BELUM_TUNTAS',
+          'TL_BELUM_TUNTAS'
+        )
     ORDER BY r.id
     FOR UPDATE OF r, h
     `,
@@ -1054,15 +1048,7 @@ async function carryForwardCompletedSaldoRecommendations(
   for (const item of sourceResult.rows) {
     const existingResult = await client.query(
       `
-      SELECT
-        id,
-        follow_up_status,
-        saldo_status,
-        capaian,
-        is_active,
-        is_finalized,
-        carry_forward_from_year,
-        carry_forward_from_quarter
+      SELECT *
       FROM public.recommendation_quarter_history
       WHERE recommendation_id = $1
         AND tahun_periode = $2
@@ -1073,15 +1059,11 @@ async function carryForwardCompletedSaldoRecommendations(
     );
 
     let targetHistory: { id: number; updated_at: Date } | null = null;
-
     let actionType: "CREATED" | "REACTIVATED";
-
     let previous: Record<string, unknown> | null = null;
 
-    // ================================================
-    // RIWAYAT TUJUAN BELUM ADA
-    // ================================================
-
+    // Jika riwayat tujuan belum ada, buat riwayat baru
+    // menggunakan ID rekomendasi utama yang sama.
     if (existingResult.rows.length === 0) {
       const insertResult = await client.query(
         `
@@ -1095,9 +1077,10 @@ async function carryForwardCompletedSaldoRecommendations(
           is_finalized,
           is_active,
           carry_forward_from_year,
-          carry_forward_from_quarter
+          carry_forward_from_quarter,
+          is_folder_fallback
         )
-        VALUES ($1, $2, $3, $4, $5, $6, FALSE, TRUE, $7, $8)
+        VALUES ($1, $2, $3, $4, $5, $6, FALSE, TRUE, $7, $8, FALSE)
         ON CONFLICT (recommendation_id, tahun_periode, triwulan)
         DO NOTHING
         RETURNING id, updated_at
@@ -1124,13 +1107,13 @@ async function carryForwardCompletedSaldoRecommendations(
     } else {
       const existing = existingResult.rows[0];
 
-      // Riwayat aktif atau final tidak boleh ditimpa.
+      // Jangan menimpa riwayat tujuan yang sudah aktif
+      // atau sudah difinalisasi.
       if (existing.is_active || existing.is_finalized) {
         skipped++;
         continue;
       }
 
-      // Simpan keadaan sebelumnya sebelum mengaktifkan kembali.
       previous = {
         follow_up_status: existing.follow_up_status,
         saldo_status: existing.saldo_status,
@@ -1147,8 +1130,11 @@ async function carryForwardCompletedSaldoRecommendations(
           saldo_status = $2,
           capaian = $3,
           is_active = TRUE,
+          is_finalized = FALSE,
           carry_forward_from_year = $4,
           carry_forward_from_quarter = $5,
+          is_folder_fallback = FALSE,
+          folder_fallback_applied_at = NULL,
           updated_at = CURRENT_TIMESTAMP
         WHERE id = $6
           AND is_active = FALSE
@@ -1179,7 +1165,8 @@ async function carryForwardCompletedSaldoRecommendations(
       continue;
     }
 
-    // Catat proses agar pembatalan bisa mengembalikan keadaan sebelumnya.
+    // Catat agar pembatalan finalisasi dapat mengembalikan
+    // riwayat tujuan ke kondisi sebelumnya.
     await client.query(
       `
       INSERT INTO public.recommendation_quarter_carry_forward (
@@ -1232,6 +1219,55 @@ async function carryForwardCompletedSaldoRecommendations(
     moved++;
   }
 
+  // Siapkan folder tahun tujuan hanya untuk LHP/LHA
+  // yang memiliki rekomendasi belum selesai.
+  const folderResult = await client.query(
+    `
+    INSERT INTO public.recommendation_folder_quarter (
+      source,
+      category,
+      lha_number,
+      tahun_periode,
+      triwulan,
+      triwulan_aktif,
+      created_at,
+      updated_at
+    )
+    SELECT DISTINCT
+  r.source,
+  r.category,
+  r.lha_number,
+  $3::INTEGER,
+  $4::SMALLINT,
+  $4::SMALLINT,
+  CURRENT_TIMESTAMP,
+  CURRENT_TIMESTAMP
+    FROM public.recommendations r
+    INNER JOIN public.recommendation_quarter_history h
+      ON h.recommendation_id = r.id
+    WHERE h.tahun_periode = $1
+      AND h.triwulan = $2
+      AND h.is_active = TRUE
+      AND h.is_finalized = TRUE
+      AND r.asal_recommendation_id IS NULL
+      AND UPPER(TRIM(COALESCE(h.follow_up_status, '')))
+        IN (
+          'BELUM_TL',
+          'SUDAH_TL',
+          'BELUM_TUNTAS',
+          'TL_BELUM_TUNTAS'
+        )
+    ON CONFLICT (
+      source,
+      category,
+      lha_number,
+      tahun_periode
+    )
+    DO NOTHING
+    `,
+    [year, quarter, targetYear, targetQuarter]
+  );
+
   return {
     tahun_asal: year,
     triwulan_asal: quarter,
@@ -1239,7 +1275,7 @@ async function carryForwardCompletedSaldoRecommendations(
     triwulan_tujuan: targetQuarter,
     jumlah_rekomendasi_dibawa: moved,
     jumlah_rekomendasi_dilewati: skipped,
-    jumlah_folder_dibawa: 0,
+    jumlah_folder_dibawa: Number(folderResult.rowCount ?? 0),
   };
 }
 // POST: melakukan finalisasi dan menyimpan snapshot triwulan.
@@ -1505,7 +1541,7 @@ export async function POST(request: Request) {
     );
     // Bawa rekomendasi yang sudah tuntas dan masuk saldo
     // ke triwulan berikutnya. TW4 tidak melakukan carry forward.
-    const carryForwardResult = await carryForwardCompletedSaldoRecommendations(
+    const carryForwardResult = await carryForwardUnfinishedRecommendations(
       client,
       year,
       triwulan
@@ -1622,6 +1658,31 @@ export async function DELETE(request: Request) {
       throw new Error(
         `Pembatalan TW${quarter} tidak dapat dilakukan karena TW${laterQuarter} sudah difinalisasi. Batalkan finalisasi TW${laterQuarter} terlebih dahulu.`
       );
+    }
+    // Khusus TW4, periksa apakah tahun berikutnya
+    // sudah memiliki triwulan yang difinalisasi.
+    if (quarter === 4) {
+      const nextYearSnapshotResult = await client.query(
+        `
+    SELECT triwulan
+    FROM public.dashboard_capaian_triwulan
+    WHERE tahun = $1
+      AND is_finalized = TRUE
+    ORDER BY triwulan ASC
+    LIMIT 1
+    `,
+        [year + 1]
+      );
+
+      if (nextYearSnapshotResult.rows.length > 0) {
+        const nextQuarter = Number(nextYearSnapshotResult.rows[0].triwulan);
+
+        throw new Error(
+          `Pembatalan TW4 tahun ${year} tidak dapat dilakukan karena TW${nextQuarter} tahun ${
+            year + 1
+          } sudah difinalisasi. Batalkan finalisasi tahun tujuan terlebih dahulu.`
+        );
+      }
     }
 
     // Nonaktifkan hanya riwayat tujuan yang:

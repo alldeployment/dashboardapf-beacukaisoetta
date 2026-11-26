@@ -300,8 +300,15 @@ export async function GET(request: NextRequest) {
 `);
 
     // Filter berdasarkan tahun pengelolaan rekomendasi.
+    // Rekomendasi asli tetap dapat ditampilkan pada tahun
+    // berikutnya jika memiliki riwayat carry-forward.
     if (selectedYear !== null) {
-      conditions.push("current_rec.tahun_periode = $2::INTEGER");
+      conditions.push(`
+    (
+      current_rec.tahun_periode = $2::INTEGER
+      OR quarter_history.tahun_periode = $2::INTEGER
+    )
+  `);
     }
 
     // Jika memilih triwulan:
@@ -947,109 +954,140 @@ export async function PUT(request: NextRequest) {
     const currentRecommendation = currentResult.rows[0];
     // Identifikasi apakah rekomendasi ini merupakan rekomendasi bawaan.
 
-    // Tahun asli rekomendasi, tidak boleh berubah.
+    // Tahun asli rekomendasi.
     const tahunPeriodeAsal = Number(currentRecommendation.tahun_periode);
 
-    // Tahun riwayat yang sedang diedit.
-    const tahunRiwayat =
-      body.tahun_riwayat !== undefined && body.tahun_riwayat !== null
-        ? parseYear(body.tahun_riwayat)
-        : tahunPeriodeAsal;
+    // Tentukan tahun riwayat yang sedang diedit.
+    const rawHistoryYear =
+      body.tahun_riwayat ?? tahunPeriode ?? tahunPeriodeAsal;
 
-    if (tahunRiwayat === null) {
+    const effectiveYear = parseYear(rawHistoryYear);
+
+    if (effectiveYear === null) {
       throw new Error("Tahun riwayat tidak valid.");
     }
-    // Tahun yang digunakan untuk membaca dan mengubah riwayat.
-    const effectiveYear = tahunRiwayat;
-    const requestedQuarter =
-      body.triwulan_riwayat !== undefined && body.triwulan_riwayat !== null
-        ? Number(body.triwulan_riwayat)
-        : null;
+
+    // Triwulan harus dikirim secara eksplisit agar
+    // tidak salah memperbarui riwayat triwulan lain.
+    const rawHistoryQuarter = body.triwulan_riwayat ?? body.triwulan;
 
     if (
-      requestedQuarter !== null &&
-      (!Number.isInteger(requestedQuarter) ||
-        ![1, 2, 3, 4].includes(requestedQuarter))
+      rawHistoryQuarter === undefined ||
+      rawHistoryQuarter === null ||
+      rawHistoryQuarter === ""
+    ) {
+      throw new Error("Triwulan riwayat wajib dipilih.");
+    }
+
+    const requestedQuarter = Number(rawHistoryQuarter);
+
+    if (
+      !Number.isInteger(requestedQuarter) ||
+      ![1, 2, 3, 4].includes(requestedQuarter)
     ) {
       throw new Error("Triwulan riwayat tidak valid.");
     }
 
-    // Identitas folder tidak boleh berubah ketika mengedit
-    // satu rekomendasi. Periode dan folder memiliki pengaturan sendiri.
+    // Identitas folder tetap tidak boleh berubah.
     const folderIdentityChanged =
       String(source) !== String(currentRecommendation.source) ||
       String(category) !== String(currentRecommendation.category) ||
       String(lhaNumber) !== String(currentRecommendation.lha_number);
-    if (folderIdentityChanged) {
-      await client.query("ROLLBACK");
 
-      return NextResponse.json(
-        {
-          ok: false,
-          message:
-            "Sumber, kategori, nomor LHA/LHP, dan tahun periode tidak dapat diubah melalui edit satu rekomendasi.",
-        },
-        { status: 409 }
+    if (folderIdentityChanged) {
+      throw new Error(
+        "Sumber, kategori, dan nomor LHA/LHP tidak dapat diubah melalui edit satu rekomendasi."
       );
     }
 
-    // 2. Ambil seluruh riwayat aktif rekomendasi ini.
-    const activeHistoryResult = await client.query(
+    // Pastikan triwulan tujuan belum difinalisasi.
+    const finalizedResult = await client.query(
       `
-      SELECT *
-      FROM public.recommendation_quarter_history
-      WHERE recommendation_id = $1
-        AND tahun_periode = $2
-        AND is_active = TRUE
-        AND ($3::int IS NULL OR triwulan = $3)
-        ORDER BY updated_at DESC, id DESC
-        FOR UPDATE
-      `,
+  SELECT 1
+  FROM public.dashboard_capaian_triwulan
+  WHERE tahun = $1
+    AND triwulan = $2
+    AND is_finalized = TRUE
+  LIMIT 1
+  `,
+      [effectiveYear, requestedQuarter]
+    );
+
+    if (finalizedResult.rows.length > 0) {
+      throw new Error(
+        `TW${requestedQuarter} sudah difinalisasi dan tidak dapat diubah.`
+      );
+    }
+
+    // Ambil riwayat tepat berdasarkan ID, tahun, dan triwulan.
+    const targetHistoryResult = await client.query(
+      `
+  SELECT *
+  FROM public.recommendation_quarter_history
+  WHERE recommendation_id = $1
+    AND tahun_periode = $2
+    AND triwulan = $3
+  FOR UPDATE
+  `,
       [id, effectiveYear, requestedQuarter]
     );
 
-    const activeHistories = activeHistoryResult.rows;
-    const previousHistory = activeHistories[0] ?? null;
+    const targetHistory = targetHistoryResult.rows[0] ?? null;
 
-    // Cek apakah triwulan asal sudah difinalisasi.
-    if (previousHistory) {
-      const oldFinalizedResult = await client.query(
-        `
-    SELECT 1
-    FROM public.dashboard_capaian_triwulan
-    WHERE tahun = $1
-      AND triwulan = $2
-      AND is_finalized = TRUE
-    LIMIT 1
-    `,
-        [effectiveYear, previousHistory.triwulan]
-      );
-
-      if (oldFinalizedResult.rows.length > 0) {
-        throw new Error(
-          "Triwulan sebelumnya sudah difinalisasi dan tidak dapat dipindahkan."
-        );
-      }
+    if (targetHistory?.is_finalized === true) {
+      throw new Error(`Riwayat TW${requestedQuarter} sudah difinalisasi.`);
     }
 
-    // Pertahankan triwulan aktif sebelumnya.
-    // Edit status tidak memindahkan rekomendasi ke triwulan lain.
-    if (previousHistory) {
-      await client.query(
-        `
-    UPDATE public.recommendation_quarter_history
-    SET
-      follow_up_status = $1,
-      saldo_status = $2,
-      capaian = $3,
-      updated_at = CURRENT_TIMESTAMP
-    WHERE id = $4
-    `,
-        [followUpStatus, saldoStatus, capaian, previousHistory.id]
-      );
+    // Simpan status hanya pada riwayat triwulan yang sedang diedit.
+    const historyResult = await client.query(
+      `
+  INSERT INTO public.recommendation_quarter_history (
+    recommendation_id,
+    tahun_periode,
+    triwulan,
+    follow_up_status,
+    saldo_status,
+    capaian,
+    is_active,
+    is_finalized,
+    is_folder_fallback,
+    folder_fallback_applied_at
+  )
+  VALUES ($1, $2, $3, $4, $5, $6, TRUE, FALSE, FALSE, NULL)
+
+  ON CONFLICT (
+    recommendation_id,
+    tahun_periode,
+    triwulan
+  )
+  DO UPDATE SET
+    follow_up_status = EXCLUDED.follow_up_status,
+    saldo_status = EXCLUDED.saldo_status,
+    capaian = EXCLUDED.capaian,
+    is_active = TRUE,
+    is_folder_fallback = FALSE,
+    folder_fallback_applied_at = NULL,
+    updated_at = CURRENT_TIMESTAMP
+  WHERE
+    public.recommendation_quarter_history.is_finalized = FALSE
+
+  RETURNING id
+  `,
+      [
+        id,
+        effectiveYear,
+        requestedQuarter,
+        followUpStatus,
+        saldoStatus,
+        capaian,
+      ]
+    );
+
+    if (historyResult.rows.length === 0) {
+      throw new Error("Gagal menyimpan riwayat triwulan.");
     }
 
-    const activeQuarter = previousHistory?.triwulan ?? null;
+    const activeQuarter = requestedQuarter;
     const updateResult = await client.query(
       `
       UPDATE public.recommendations
@@ -1069,20 +1107,8 @@ export async function PUT(request: NextRequest) {
         waktu_pelaksanaan = $13,
         uic = $14,
         tindak_lanjut = $15,
-        follow_up_status = CASE
-        WHEN tahun_periode = $20 THEN $16
-        ELSE follow_up_status
-      END,
-      saldo_status = CASE
-        WHEN tahun_periode = $20 THEN $17
-        ELSE saldo_status
-      END,
-      capaian = CASE
-        WHEN tahun_periode = $20 THEN $18
-        ELSE capaian
-      END,
-      updated_at = CURRENT_TIMESTAMP
-      WHERE id = $19
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $16
       RETURNING *
       `,
       [
@@ -1101,11 +1127,7 @@ export async function PUT(request: NextRequest) {
         waktu_pelaksanaan || null,
         uic || "",
         tindak_lanjut || "",
-        followUpStatus,
-        saldoStatus,
-        capaian,
         id,
-        tahunPeriodeAsal,
       ]
     );
 
@@ -1165,6 +1187,192 @@ export async function PATCH(request: NextRequest) {
 
     const body = await request.json();
     // PATCH khusus untuk mengubah triwulan folder LHA/LHP.
+    // =====================================================
+    // DUPLIKASI RIWAYAT TRIWULAN SECARA MANUAL
+    // Bisa untuk satu rekomendasi atau seluruh folder.
+    // =====================================================
+    if (body.scope === "manual_duplicate") {
+      const tahunPeriode = parseYear(body.tahun_periode ?? body.year);
+      const sourceQuarter = Number(body.triwulan_asal);
+      const targetQuarter = Number(body.triwulan_tujuan);
+
+      const id =
+        body.id !== undefined && body.id !== null && body.id !== ""
+          ? Number(body.id)
+          : null;
+
+      if (
+        tahunPeriode === null ||
+        !Number.isInteger(sourceQuarter) ||
+        ![1, 2, 3, 4].includes(sourceQuarter) ||
+        !Number.isInteger(targetQuarter) ||
+        ![1, 2, 3, 4].includes(targetQuarter)
+      ) {
+        throw new Error("Tahun atau pilihan triwulan tidak valid.");
+      }
+
+      if (sourceQuarter === targetQuarter) {
+        throw new Error("Triwulan asal dan tujuan tidak boleh sama.");
+      }
+
+      await client.query("BEGIN");
+
+      // Pastikan triwulan tujuan belum difinalisasi.
+      const targetSnapshot = await client.query(
+        `
+    SELECT 1
+    FROM public.dashboard_capaian_triwulan
+    WHERE tahun = $1
+      AND triwulan = $2
+      AND is_finalized = TRUE
+    LIMIT 1
+    `,
+        [tahunPeriode, targetQuarter]
+      );
+
+      if (targetSnapshot.rows.length > 0) {
+        throw new Error(
+          `TW${targetQuarter} tahun ${tahunPeriode} sudah difinalisasi.`
+        );
+      }
+
+      let sourceRows: {
+        id: number;
+        follow_up_status: string;
+        saldo_status: string;
+        capaian: number;
+      }[] = [];
+
+      // MODE SATU REKOMENDASI
+      if (id !== null) {
+        if (!Number.isInteger(id) || id <= 0) {
+          throw new Error("ID rekomendasi tidak valid.");
+        }
+
+        const sourceResult = await client.query(
+          `
+      SELECT
+        r.id,
+        h.follow_up_status,
+        h.saldo_status,
+        h.capaian
+      FROM public.recommendations r
+      INNER JOIN public.recommendation_quarter_history h
+        ON h.recommendation_id = r.id
+      WHERE r.id = $1
+        AND r.asal_recommendation_id IS NULL
+        AND h.tahun_periode = $2
+        AND h.triwulan = $3
+        AND h.is_active = TRUE
+      FOR UPDATE OF r, h
+      `,
+          [id, tahunPeriode, sourceQuarter]
+        );
+
+        sourceRows = sourceResult.rows;
+      } else {
+        // MODE SELURUH REKOMENDASI DALAM FOLDER
+        const { source, category, lha_number } = body;
+
+        if (!source || !category || !lha_number) {
+          throw new Error("Identitas folder LHA/LHP wajib diisi.");
+        }
+
+        const sourceResult = await client.query(
+          `
+      SELECT
+        r.id,
+        h.follow_up_status,
+        h.saldo_status,
+        h.capaian
+      FROM public.recommendations r
+      INNER JOIN public.recommendation_quarter_history h
+        ON h.recommendation_id = r.id
+      WHERE r.source = $1
+        AND r.category = $2
+        AND r.lha_number = $3
+        AND r.tahun_periode = $4
+        AND r.asal_recommendation_id IS NULL
+        AND h.tahun_periode = $4
+        AND h.triwulan = $5
+        AND h.is_active = TRUE
+      ORDER BY r.id
+      FOR UPDATE OF r, h
+      `,
+          [source, category, lha_number, tahunPeriode, sourceQuarter]
+        );
+
+        sourceRows = sourceResult.rows;
+      }
+
+      if (sourceRows.length === 0) {
+        throw new Error(
+          `Tidak ditemukan riwayat aktif pada TW${sourceQuarter} tahun ${tahunPeriode}.`
+        );
+      }
+
+      let created = 0;
+      let skipped = 0;
+
+      // Salin riwayat dengan ID rekomendasi utama yang sama.
+      for (const item of sourceRows) {
+        const destinationResult = await client.query(
+          `
+      INSERT INTO public.recommendation_quarter_history (
+        recommendation_id,
+        tahun_periode,
+        triwulan,
+        follow_up_status,
+        saldo_status,
+        capaian,
+        is_active,
+        is_finalized,
+        is_folder_fallback,
+        folder_fallback_applied_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, TRUE, FALSE, FALSE, NULL)
+
+      ON CONFLICT (
+        recommendation_id,
+        tahun_periode,
+        triwulan
+      )
+      DO NOTHING
+
+      RETURNING id
+      `,
+          [
+            item.id,
+            tahunPeriode,
+            targetQuarter,
+            item.follow_up_status,
+            item.saldo_status,
+            Number(item.capaian ?? calculateCapaian(item.follow_up_status)),
+          ]
+        );
+
+        if (destinationResult.rows.length > 0) {
+          created++;
+        } else {
+          // Riwayat tujuan yang sudah ada tidak ditimpa.
+          skipped++;
+        }
+      }
+
+      await client.query("COMMIT");
+
+      return NextResponse.json({
+        ok: true,
+        message: `Duplikasi riwayat ke TW${targetQuarter} berhasil diproses.`,
+        data: {
+          tahun_periode: tahunPeriode,
+          triwulan_asal: sourceQuarter,
+          triwulan_tujuan: targetQuarter,
+          jumlah_berhasil_disalin: created,
+          jumlah_dilewati: skipped,
+        },
+      });
+    }
 
     if (body.scope === "folder") {
       const source = body.source;
@@ -1339,19 +1547,6 @@ export async function PATCH(request: NextRequest) {
 
         // Nonaktifkan riwayat aktif sebelumnya.
         // Data lama tetap tersimpan dan tidak dihapus.
-        await client.query(
-          `
-          UPDATE public.recommendation_quarter_history
-          SET
-            is_active = FALSE,
-            updated_at = CURRENT_TIMESTAMP
-          WHERE recommendation_id = $1
-            AND tahun_periode = $2
-            AND is_active = TRUE
-            AND is_finalized = FALSE
-          `,
-          [recommendation.id, tahunPeriode]
-        );
 
         // Buat atau aktifkan riwayat di triwulan tujuan.
         await client.query(
@@ -1376,11 +1571,7 @@ export async function PATCH(request: NextRequest) {
             triwulan
           )
           DO UPDATE SET
-            follow_up_status = EXCLUDED.follow_up_status,
-            saldo_status = EXCLUDED.saldo_status,
-            capaian = EXCLUDED.capaian,
             is_active = TRUE,
-            is_finalized = FALSE,
             is_folder_fallback = FALSE,
             folder_fallback_applied_at = NULL,
             updated_at = CURRENT_TIMESTAMP
@@ -1515,30 +1706,10 @@ export async function PATCH(request: NextRequest) {
       : null;
 
     // 3. Jangan memindahkan riwayat yang sudah difinalisasi.
-    const finalizedSourceResult = await client.query(
-      `
-  SELECT 1
-  FROM public.recommendation_quarter_history h
-  LEFT JOIN public.dashboard_capaian_triwulan s
-    ON s.tahun = h.tahun_periode
-    AND s.triwulan = h.triwulan
-  WHERE h.recommendation_id = $1
-    AND h.tahun_periode = $2
-    AND h.is_active = TRUE
-    AND (
-      h.is_finalized = TRUE
-      OR s.is_finalized = TRUE
-    )
-  LIMIT 1
-  `,
-      [id, tahunPeriode]
-    );
-
-    if (finalizedSourceResult.rows.length > 0) {
-      throw new Error(
-        "Riwayat triwulan sebelumnya sudah difinalisasi. Batalkan finalisasi terlebih dahulu."
-      );
-    }
+    // Riwayat triwulan sebelumnya tetap dipertahankan,
+    // termasuk riwayat yang sudah difinalisasi.
+    // Pembuatan riwayat baru diperbolehkan selama
+    // triwulan tujuan belum difinalisasi.
 
     // 4. Pertahankan status terakhir rekomendasi.
     const followUpStatus =
@@ -1620,15 +1791,12 @@ export async function PATCH(request: NextRequest) {
     triwulan
   )
   DO UPDATE SET
-    follow_up_status = EXCLUDED.follow_up_status,
-    saldo_status = EXCLUDED.saldo_status,
-    capaian = EXCLUDED.capaian,
-    is_active = TRUE,
-    is_folder_fallback = FALSE,
-    folder_fallback_applied_at = NULL,
-    updated_at = CURRENT_TIMESTAMP
-  WHERE
-    public.recommendation_quarter_history.is_finalized = FALSE
+  is_active = TRUE,
+  is_folder_fallback = FALSE,
+  folder_fallback_applied_at = NULL,
+  updated_at = CURRENT_TIMESTAMP
+WHERE
+  public.recommendation_quarter_history.is_finalized = FALSE
 
   RETURNING id
   `,
@@ -1648,20 +1816,6 @@ export async function PATCH(request: NextRequest) {
 
     // 8. Nonaktifkan riwayat aktif pada triwulan sebelumnya.
     // Riwayat lama tidak dihapus.
-    const deactivatePreviousResult = await client.query(
-      `
-  UPDATE public.recommendation_quarter_history
-  SET
-    is_active = FALSE,
-    updated_at = CURRENT_TIMESTAMP
-  WHERE recommendation_id = $1
-    AND tahun_periode = $2
-    AND triwulan <> $3
-    AND is_active = TRUE
-    AND is_finalized = FALSE
-  `,
-      [id, tahunPeriode, targetQuarter]
-    );
 
     await client.query("COMMIT");
 
@@ -1675,7 +1829,7 @@ export async function PATCH(request: NextRequest) {
         triwulan: targetQuarter,
         follow_up_status: followUpStatus,
         saldo_status: saldoStatus,
-        riwayat_lama_dinonaktifkan: deactivatePreviousResult.rowCount ?? 0,
+        riwayat_sebelumnya_dipertahankan: activeHistories.length,
       },
     });
 

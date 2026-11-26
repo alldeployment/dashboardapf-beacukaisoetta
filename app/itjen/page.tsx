@@ -25,6 +25,10 @@ type Recommendation = {
   uic?: string | null;
   tindak_lanjut?: string | null;
   created_at?: string;
+
+  triwulan?: number | null;
+  folder_triwulan?: number | null;
+  folder_triwulan_aktif?: number | null;
 };
 
 type Summary = {
@@ -185,37 +189,67 @@ export default function ItjenPage() {
       Array.from(new Set(data.map((item) => item.category).filter(Boolean))),
     [data]
   );
+  const normalizeFollowUpStatus = (value: string | null | undefined) => {
+    const status = (value ?? "").trim().toUpperCase();
+
+    if (status === "BELUM_TUNTAS" || status === "TL_BELUM_TUNTAS") {
+      return "SUDAH_TL";
+    }
+
+    if (status === "TL_SUDAH_TUNTAS") {
+      return "SUDAH_TUNTAS";
+    }
+
+    return status;
+  };
+
+  const normalizeCategory = (value: string | null | undefined) =>
+    (value ?? "")
+      .trim()
+      .toUpperCase()
+      .replace(/[\s-]+/g, "_");
 
   const filteredData = useMemo(() => {
+    console.table(
+      data.map((item) => ({
+        id: item.id,
+        kategori_asli: item.category,
+        kategori_filter: categoryFilter,
+        status_asli: item.follow_up_status,
+        status_filter: statusFilter,
+      }))
+    );
     const keyword = search.toLowerCase().trim();
 
     return data.filter((item) => {
       const matchesSearch =
         !keyword ||
-        String(item.lha_number || "")
+        String(item.lha_number ?? "")
           .toLowerCase()
           .includes(keyword) ||
-        String(item.category || "")
+        String(item.category ?? "")
           .toLowerCase()
           .includes(keyword) ||
-        String(item.description || "")
+        String(item.description ?? "")
           .toLowerCase()
           .includes(keyword) ||
-        String(item.no_temuan || "")
+        String(item.no_temuan ?? "")
           .toLowerCase()
           .includes(keyword) ||
-        String(item.judul || "")
+        String(item.judul ?? "")
           .toLowerCase()
           .includes(keyword) ||
-        String(item.recommendation_number || "")
+        String(item.recommendation_number ?? "")
           .toLowerCase()
           .includes(keyword);
 
       const matchesStatus =
-        statusFilter === "ALL" || item.follow_up_status === statusFilter;
+        statusFilter === "ALL" ||
+        normalizeFollowUpStatus(item.follow_up_status) === statusFilter;
 
       const matchesCategory =
-        categoryFilter === "ALL" || item.category === categoryFilter;
+        categoryFilter === "ALL" ||
+        normalizeCategory(item.category) === normalizeCategory(categoryFilter);
 
       return matchesSearch && matchesStatus && matchesCategory;
     });
@@ -701,11 +735,11 @@ export default function ItjenPage() {
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-600 outline-none transition focus:border-[#D4A72C] focus:bg-white"
+                  className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-600 outline-none"
                 >
                   <option value="ALL">Semua Status</option>
                   <option value="SUDAH_TUNTAS">Sudah Tuntas</option>
-                  <option value="BELUM_TUNTAS">Belum Tuntas</option>
+                  <option value="SUDAH_TL">Sudah TL / Belum Tuntas</option>
                   <option value="BELUM_TL">Belum TL</option>
                 </select>
 
@@ -777,6 +811,9 @@ export default function ItjenPage() {
                     <th className="px-6 py-4 text-center text-xs font-semibold uppercase tracking-wider text-slate-500">
                       No. Temuan
                     </th>
+                    <th className="px-6 py-4 text-center text-xs font-semibold uppercase tracking-wider text-slate-500">
+                      Triwulan
+                    </th>
 
                     <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-slate-500">
                       Tindak Lanjut
@@ -834,6 +871,20 @@ export default function ItjenPage() {
                       <td className="px-6 py-5 text-center">
                         <span className="inline-flex h-9 min-w-9 items-center justify-center rounded-xl bg-[#071426] px-3 text-sm font-bold text-white">
                           {item.no_temuan || "-"}
+                        </span>
+                      </td>
+                      <td className="px-6 py-5 text-center">
+                        <span className="inline-flex rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700">
+                          {(() => {
+                            const quarter =
+                              item.triwulan ??
+                              item.folder_triwulan_aktif ??
+                              item.folder_triwulan;
+
+                            return quarter
+                              ? `TW ${quarter}`
+                              : "Belum Ditentukan";
+                          })()}
                         </span>
                       </td>
 

@@ -238,6 +238,9 @@ export default function RecommendationForm({
     if (!isEditing && !["1", "2", "3", "4"].includes(folderTriwulan)) {
       return "Triwulan folder LHP/LHA wajib dipilih.";
     }
+    if (isEditing && !["1", "2", "3", "4"].includes(items[0]?.triwulan ?? "")) {
+      return "Pilih triwulan tujuan terlebih dahulu.";
+    }
 
     // Triwulan individual opsional.
     // Jika diisi, nilainya harus valid.
@@ -292,9 +295,13 @@ export default function RecommendationForm({
           id: editingData!.id,
           ...commonData,
 
-          // Periode dan triwulan riwayat yang sedang diedit.
-          tahun_riwayat: editingData!.tahun_riwayat ?? selectedYear,
-          triwulan_riwayat: editingData!.triwulan ?? null,
+          // Periode dan triwulan tujuan berdasarkan pilihan form.
+          tahun_riwayat: Number(
+            editingData!.tahun_riwayat ?? selectedYear ?? tahunPeriode
+          ),
+          triwulan_riwayat: items[0].triwulan
+            ? Number(items[0].triwulan)
+            : Number(editingData!.triwulan ?? editingData!.folder_triwulan),
 
           // DATA BARU
           no_temuan: items[0].noTemuan.trim(),
@@ -821,12 +828,11 @@ export default function RecommendationForm({
                           htmlFor={`triwulan-${index}`}
                           className={labelClass}
                         >
-                          Triwulan (Opsional)
+                          {isEditing ? "Pilih Triwulan" : "Triwulan (Opsional)"}
                         </label>
 
                         <select
                           id={`triwulan-${index}`}
-                          required
                           value={item.triwulan}
                           onChange={(event) =>
                             updateItem(index, "triwulan", event.target.value)
@@ -834,7 +840,7 @@ export default function RecommendationForm({
                           className={selectClass}
                           disabled={loading}
                         >
-                          <option value="">Pilih Triwulan</option>
+                          <option value="">Belum Ditentukan</option>
                           <option value="1">Triwulan I</option>
                           <option value="2">Triwulan II</option>
                           <option value="3">Triwulan III</option>
