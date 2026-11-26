@@ -123,6 +123,9 @@ async function ensureQuarterHistoryTable() {
       saldo_status VARCHAR(50) NOT NULL,
       capaian NUMERIC(5, 2) NOT NULL DEFAULT 0,
       is_finalized BOOLEAN NOT NULL DEFAULT FALSE,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      is_folder_fallback BOOLEAN NOT NULL DEFAULT FALSE,
+      folder_fallback_applied_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -139,7 +142,9 @@ async function ensureQuarterHistoryTable() {
   ALTER TABLE public.recommendation_quarter_history
     ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE,
     ADD COLUMN IF NOT EXISTS carry_forward_from_year INTEGER,
-    ADD COLUMN IF NOT EXISTS carry_forward_from_quarter SMALLINT
+    ADD COLUMN IF NOT EXISTS carry_forward_from_quarter SMALLINT,
+    ADD COLUMN IF NOT EXISTS is_folder_fallback BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS folder_fallback_applied_at TIMESTAMPTZ
 `);
 }
 // Mencatat riwayat yang benar-benar dibuat oleh carry-forward.
@@ -402,7 +407,7 @@ COUNT(*) FILTER (
 
 COUNT(*) FILTER (
   WHERE UPPER(TRIM(COALESCE(h.follow_up_status, r.follow_up_status, '')))
-    IN ('SUDAH_TUNTAS', 'TL_SUDAH_TUNTAS')
+  = 'SUDAH_TUNTAS'
 )::int AS total_tl_sudah_tuntas,
       COUNT(*) FILTER (
         WHERE UPPER(TRIM(COALESCE(h.saldo_status, r.saldo_status, '')))
@@ -427,7 +432,7 @@ COUNT(*) FILTER (
         WHERE UPPER(TRIM(COALESCE(h.saldo_status, r.saldo_status, '')))
           = 'MASUK_SALDO'
           AND UPPER(TRIM(COALESCE(h.follow_up_status, r.follow_up_status, '')))
-            IN ('SUDAH_TUNTAS', 'TL_SUDAH_TUNTAS')
+          = 'SUDAH_TUNTAS'
       )::int AS tl_sudah_tuntas,
 
       COUNT(*) FILTER (
@@ -453,7 +458,7 @@ COUNT(*) FILTER (
         WHERE UPPER(TRIM(COALESCE(h.saldo_status, r.saldo_status, '')))
           = 'MASUK_SALDO'
           AND UPPER(TRIM(COALESCE(h.follow_up_status, r.follow_up_status, '')))
-            IN ('SUDAH_TUNTAS', 'TL_SUDAH_TUNTAS')
+          = 'SUDAH_TUNTAS'
       )::int AS masuk_tl_sudah_tuntas
 
     FROM public.recommendations r
@@ -528,38 +533,82 @@ async function getSummaryTriwulan(year: number, quarter: number) {
 async function getSummaryTriwulanHistory(year: number, quarter: number) {
   const result = await pool.query(
     `
+    WITH effective_recommendations AS (
+      SELECT
+        COALESCE(h.follow_up_status, r.follow_up_status) AS follow_up_status,
+        COALESCE(h.saldo_status, r.saldo_status) AS saldo_status
+
+      FROM public.recommendations r
+
+      LEFT JOIN LATERAL (
+        SELECT
+          fq.triwulan_aktif
+        FROM public.recommendation_folder_quarter fq
+        WHERE fq.source = r.source
+          AND COALESCE(fq.category, '') = COALESCE(r.category, '')
+          AND COALESCE(fq.lha_number, '') = COALESCE(r.lha_number, '')
+          AND fq.tahun_periode = $1
+        LIMIT 1
+      ) folder_quarter ON TRUE
+
+      LEFT JOIN LATERAL (
+        SELECT
+          qh.id,
+          qh.follow_up_status,
+          qh.saldo_status
+        FROM public.recommendation_quarter_history qh
+        WHERE qh.recommendation_id = r.id
+          AND qh.tahun_periode = $1
+          AND qh.triwulan = $2
+          AND qh.is_active = TRUE
+          AND qh.is_folder_fallback = FALSE
+        ORDER BY qh.id DESC
+        LIMIT 1
+      ) h ON TRUE
+
+      WHERE r.asal_recommendation_id IS NULL
+        AND (
+          h.id IS NOT NULL
+
+          OR (
+            NOT EXISTS (
+              SELECT 1
+              FROM public.recommendation_quarter_history existing_history
+              WHERE existing_history.recommendation_id = r.id
+                AND existing_history.tahun_periode = $1
+                AND existing_history.is_active = TRUE
+                AND existing_history.is_folder_fallback = FALSE
+            )
+            AND folder_quarter.triwulan_aktif = $2
+          )
+        )
+    )
+
     SELECT
+      COUNT(*)::int AS total_rekomendasi,
+
       COUNT(*) FILTER (
-        WHERE UPPER(TRIM(COALESCE(h.saldo_status, ''))) = 'MASUK_SALDO'
+        WHERE UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
       )::int AS saldo,
 
       COUNT(*) FILTER (
-        WHERE UPPER(TRIM(COALESCE(h.saldo_status, ''))) = 'MASUK_SALDO'
-          AND UPPER(TRIM(COALESCE(h.follow_up_status, ''))) = 'BELUM_TL'
+        WHERE UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
+          AND UPPER(TRIM(COALESCE(follow_up_status, ''))) = 'BELUM_TL'
       )::int AS belum_tl,
 
       COUNT(*) FILTER (
-        WHERE UPPER(TRIM(COALESCE(h.saldo_status, ''))) = 'MASUK_SALDO'
-          AND UPPER(TRIM(COALESCE(h.follow_up_status, '')))
+        WHERE UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
+          AND UPPER(TRIM(COALESCE(follow_up_status, '')))
             IN ('SUDAH_TL', 'BELUM_TUNTAS', 'TL_BELUM_TUNTAS')
       )::int AS tl_belum_tuntas,
 
       COUNT(*) FILTER (
-        WHERE UPPER(TRIM(COALESCE(h.saldo_status, ''))) = 'MASUK_SALDO'
-          AND UPPER(TRIM(COALESCE(h.follow_up_status, '')))
-            IN ('SUDAH_TUNTAS', 'TL_SUDAH_TUNTAS')
-      )::int AS tl_sudah_tuntas,
+        WHERE UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
+          AND UPPER(TRIM(COALESCE(follow_up_status, '')))
+          = 'SUDAH_TUNTAS'
+      )::int AS tl_sudah_tuntas
 
-      COUNT(*)::int AS total_rekomendasi
-
-    FROM public.recommendation_quarter_history h
-    INNER JOIN public.recommendations r
-      ON r.id = h.recommendation_id
-
-    WHERE h.tahun_periode = $1
-      AND h.triwulan = $2
-      AND h.is_active = TRUE
-      AND r.asal_recommendation_id IS NULL
+    FROM effective_recommendations
     `,
     [year, quarter]
   );
@@ -872,6 +921,82 @@ export async function GET(request: Request) {
     );
   }
 }
+async function createFolderFallbackHistory(
+  client: PoolClient,
+  year: number,
+  quarter: number
+) {
+  const result = await client.query(
+    `
+    INSERT INTO public.recommendation_quarter_history (
+      recommendation_id,
+      tahun_periode,
+      triwulan,
+      follow_up_status,
+      saldo_status,
+      is_finalized,
+      is_active,
+      is_folder_fallback,
+      folder_fallback_applied_at,
+      updated_at
+    )
+    SELECT
+      r.id,
+      $1,
+      $2,
+      COALESCE(NULLIF(TRIM(r.follow_up_status), ''), 'BELUM_TL'),
+      COALESCE(NULLIF(TRIM(r.saldo_status), ''), 'BELUM_SALDO'),
+      FALSE,
+      TRUE,
+      TRUE,
+      CURRENT_TIMESTAMP,
+      CURRENT_TIMESTAMP
+    FROM public.recommendations r
+
+    INNER JOIN public.recommendation_folder_quarter fq
+      ON fq.source = r.source
+      AND COALESCE(fq.category, '') = COALESCE(r.category, '')
+      AND COALESCE(fq.lha_number, '') = COALESCE(r.lha_number, '')
+      AND fq.tahun_periode = $1
+
+    WHERE r.asal_recommendation_id IS NULL
+      AND r.tahun_periode = $1
+      AND fq.triwulan_aktif = $2
+
+      AND NOT EXISTS (
+        SELECT 1
+        FROM public.recommendation_quarter_history existing_history
+        WHERE existing_history.recommendation_id = r.id
+          AND existing_history.tahun_periode = $1
+          AND existing_history.is_active = TRUE
+          AND existing_history.is_folder_fallback = FALSE
+      )
+
+      ON CONFLICT (recommendation_id, tahun_periode, triwulan)
+      DO UPDATE SET
+        follow_up_status = EXCLUDED.follow_up_status,
+        saldo_status = EXCLUDED.saldo_status,
+        capaian = EXCLUDED.capaian,
+        is_active = TRUE,
+        is_finalized = FALSE,
+        is_folder_fallback = TRUE,
+        folder_fallback_applied_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE
+        public.recommendation_quarter_history.is_active = FALSE
+        AND public.recommendation_quarter_history.is_finalized = FALSE
+        AND public.recommendation_quarter_history.is_folder_fallback = TRUE
+        AND public.recommendation_quarter_history.updated_at
+            IS NOT DISTINCT FROM
+            public.recommendation_quarter_history.folder_fallback_applied_at
+      
+      RETURNING id
+    `,
+    [year, quarter]
+  );
+
+  return Number(result.rowCount ?? 0);
+}
 
 async function carryForwardCompletedSaldoRecommendations(
   client: PoolClient,
@@ -910,16 +1035,12 @@ async function carryForwardCompletedSaldoRecommendations(
       AND h.is_active = TRUE
       AND h.is_finalized = TRUE
       AND r.asal_recommendation_id IS NULL
-      AND (
-        UPPER(TRIM(COALESCE(h.follow_up_status, '')))
-          IN (
-            'SUDAH_TL',
-            'SUDAH_TUNTAS',
-            'BELUM_TUNTAS',
-            'TL_BELUM_TUNTAS',
-            'TL_SUDAH_TUNTAS'
-          )
-        OR UPPER(TRIM(COALESCE(h.saldo_status, ''))) = 'MASUK_SALDO'
+      AND UPPER(TRIM(COALESCE(h.follow_up_status, '')))
+      IN (
+        'BELUM_TL',
+        'SUDAH_TL',
+        'BELUM_TUNTAS',
+        'TL_BELUM_TUNTAS'
       )
     ORDER BY r.id
     FOR UPDATE OF r, h
@@ -1173,6 +1294,17 @@ export async function POST(request: Request) {
     await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
       `${year}:${triwulan}`,
     ]);
+    // Buat riwayat untuk rekomendasi yang mengikuti triwulan folder.
+    const fallbackCreated = await createFolderFallbackHistory(
+      client,
+      year,
+      triwulan
+    );
+
+    console.log(
+      `Riwayat fallback yang dibuat untuk TW${triwulan}:`,
+      fallbackCreated
+    );
 
     // Kunci sementara riwayat yang akan difinalisasi.
     await client.query(
@@ -1190,38 +1322,84 @@ export async function POST(request: Request) {
     // Ambil ringkasan khusus triwulan tersebut.
     const summaryResult = await client.query(
       `
+      WITH effective_recommendations AS (
+        SELECT
+          COALESCE(h.follow_up_status, r.follow_up_status)
+            AS follow_up_status,
+    
+          COALESCE(h.saldo_status, r.saldo_status)
+            AS saldo_status
+    
+        FROM public.recommendations r
+    
+        LEFT JOIN LATERAL (
+          SELECT
+            fq.triwulan_aktif
+          FROM public.recommendation_folder_quarter fq
+          WHERE fq.source = r.source
+            AND COALESCE(fq.category, '') = COALESCE(r.category, '')
+            AND COALESCE(fq.lha_number, '') = COALESCE(r.lha_number, '')
+            AND fq.tahun_periode = $1
+          LIMIT 1
+        ) folder_quarter ON TRUE
+    
+        LEFT JOIN LATERAL (
+          SELECT
+            qh.id,
+            qh.follow_up_status,
+            qh.saldo_status
+          FROM public.recommendation_quarter_history qh
+          WHERE qh.recommendation_id = r.id
+            AND qh.tahun_periode = $1
+            AND qh.triwulan = $2
+            AND qh.is_active = TRUE
+            AND qh.is_folder_fallback = FALSE
+          ORDER BY qh.id DESC
+          LIMIT 1
+        ) h ON TRUE
+    
+        WHERE r.asal_recommendation_id IS NULL
+          AND (
+            h.id IS NOT NULL
+            OR (
+              NOT EXISTS (
+                SELECT 1
+                FROM public.recommendation_quarter_history existing_history
+                WHERE existing_history.recommendation_id = r.id
+                  AND existing_history.tahun_periode = $1
+                  AND existing_history.is_active = TRUE
+                  AND existing_history.is_folder_fallback = FALSE
+              )
+              AND folder_quarter.triwulan_aktif = $2
+            )
+          )
+      )
+    
       SELECT
         COUNT(*)::int AS total_rekomendasi,
     
         COUNT(*) FILTER (
-          WHERE UPPER(TRIM(COALESCE(h.saldo_status, ''))) = 'MASUK_SALDO'
+          WHERE UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
         )::int AS saldo,
     
         COUNT(*) FILTER (
-          WHERE UPPER(TRIM(COALESCE(h.saldo_status, ''))) = 'MASUK_SALDO'
-            AND UPPER(TRIM(COALESCE(h.follow_up_status, ''))) = 'BELUM_TL'
+          WHERE UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
+            AND UPPER(TRIM(COALESCE(follow_up_status, ''))) = 'BELUM_TL'
         )::int AS belum_tl,
     
         COUNT(*) FILTER (
-          WHERE UPPER(TRIM(COALESCE(h.saldo_status, ''))) = 'MASUK_SALDO'
-            AND UPPER(TRIM(COALESCE(h.follow_up_status, '')))
+          WHERE UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
+            AND UPPER(TRIM(COALESCE(follow_up_status, '')))
               IN ('SUDAH_TL', 'BELUM_TUNTAS', 'TL_BELUM_TUNTAS')
         )::int AS tl_belum_tuntas,
     
         COUNT(*) FILTER (
-          WHERE UPPER(TRIM(COALESCE(h.saldo_status, ''))) = 'MASUK_SALDO'
-            AND UPPER(TRIM(COALESCE(h.follow_up_status, '')))
-              IN ('SUDAH_TUNTAS', 'TL_SUDAH_TUNTAS')
+          WHERE UPPER(TRIM(COALESCE(saldo_status, ''))) = 'MASUK_SALDO'
+            AND UPPER(TRIM(COALESCE(follow_up_status, '')))
+            = 'SUDAH_TUNTAS'
         )::int AS tl_sudah_tuntas
     
-      FROM public.recommendation_quarter_history h
-      INNER JOIN public.recommendations r
-        ON r.id = h.recommendation_id
-    
-      WHERE h.tahun_periode = $1
-        AND h.triwulan = $2
-        AND h.is_active = TRUE
-        AND r.asal_recommendation_id IS NULL
+      FROM effective_recommendations
       `,
       [year, triwulan]
     );
@@ -1509,6 +1687,21 @@ AND h.capaian
       [year, quarter]
     );
 
+    // Hapus riwayat fallback yang dibuat otomatis saat finalisasi.
+    // Hanya hapus jika belum mengalami perubahan setelah dibuat.
+    const fallbackDeleteResult = await client.query(
+      `
+  DELETE FROM public.recommendation_quarter_history h
+  WHERE h.tahun_periode = $1
+    AND h.triwulan = $2
+    AND h.is_folder_fallback = TRUE
+    AND h.is_active = TRUE
+    AND h.is_finalized = TRUE
+    AND h.folder_fallback_applied_at IS NOT NULL
+    AND h.updated_at = h.folder_fallback_applied_at
+  `,
+      [year, quarter]
+    );
     const deactivateResult = {
       rowCount:
         Number(createdResult.rowCount ?? 0) +
@@ -1559,6 +1752,7 @@ AND h.capaian
       data: {
         riwayat_sumber_dikembalikan: sourceResult.rowCount ?? 0,
         riwayat_otomatis_dinonaktifkan: deactivateResult.rowCount ?? 0,
+        riwayat_folder_otomatis_dihapus: fallbackDeleteResult.rowCount ?? 0,
       },
     });
   } catch (error) {
